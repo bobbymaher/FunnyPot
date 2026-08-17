@@ -108,6 +108,53 @@ final class TemplateEngineTest extends TestCase
         self::assertSame(['attack-php-glastopf'], $r->satisfies->templateIds());
     }
 
+    // --- researched CVE / product emulators ---
+
+    public function test_thinkphp_returns_phpinfo(): void
+    {
+        $r = $this->probe('GET', '/index.php', 's=/index/\\think\\app/invokefunction&function=call_user_func_array&vars[0]=phpinfo');
+        self::assertNotNull($r);
+        self::assertStringContainsString('phpinfo()', $r->body);
+        self::assertSame(['attack-thinkphp-rce'], $r->satisfies->templateIds());
+    }
+
+    public function test_owncloud_graphapi_leaks_env(): void
+    {
+        $r = $this->probe('GET', '/apps/graphapi/vendor/microsoft/microsoft-graph/tests/GetPhpInfo.php');
+        self::assertNotNull($r);
+        self::assertStringContainsString('OWNCLOUD_ADMIN_PASSWORD', $r->body);
+    }
+
+    public function test_f5_icontrol_returns_runstate(): void
+    {
+        $r = $this->probe('POST', '/mgmt/tm/util/bash', '', '{"utilCmdArgs":"-c id"}');
+        self::assertNotNull($r);
+        self::assertStringContainsString('tm:util:bash:runstate', $r->body);
+    }
+
+    public function test_fortios_auth_bypass_needs_forwarded_header(): void
+    {
+        // The Forwarded header is required — a plain probe must NOT trigger it.
+        self::assertNull($this->probe('GET', '/api/v2/cmdb/system/admin'));
+        $r = $this->probe('GET', '/api/v2/cmdb/system/admin', '', null, ['Forwarded' => 'for=1.2.3.4;by=127.0.0.1']);
+        self::assertNotNull($r);
+        self::assertStringContainsString('super_admin', $r->body);
+    }
+
+    public function test_webshell_panel_on_filename_and_cmd_param(): void
+    {
+        self::assertStringContainsString('uid=33(www-data)', $this->probe('GET', '/c99.php')->body);
+        self::assertStringContainsString('uid=33(www-data)', $this->probe('GET', '/x', 'cmd=id')->body);
+    }
+
+    public function test_imds_returns_fake_credentials(): void
+    {
+        $r = $this->probe('GET', '/latest/meta-data/iam/security-credentials/webrole');
+        self::assertNotNull($r);
+        self::assertStringContainsString('AccessKeyId', $r->body);
+        self::assertStringContainsString('SecretAccessKey', $r->body);
+    }
+
     // --- the bounded directive renderer ---
 
     public function test_renderer_canned_and_compute(): void
