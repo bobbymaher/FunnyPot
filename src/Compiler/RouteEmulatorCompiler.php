@@ -105,6 +105,13 @@ final class RouteEmulatorCompiler
         if (isset($doc['taunt'])) {
             $rule['taunt'] = $this->normalizeTaunt((array) $doc['taunt'], $file);
         }
+        if (isset($doc['set_cookie'])) {
+            $cookie = (string) $doc['set_cookie'];
+            if (preg_match('/[^A-Za-z0-9_.\-]/', $cookie) === 1) {
+                throw new RuntimeException("Route template {$file}: set_cookie must be a bare cookie name (got '{$cookie}').");
+            }
+            $rule['set_cookie'] = $cookie;
+        }
 
         return $rule;
     }

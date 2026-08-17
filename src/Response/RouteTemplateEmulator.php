@@ -49,6 +49,13 @@ final class RouteTemplateEmulator extends AbstractEmulator
             $headers[(string) $name] = $this->renderer->render((string) $value, [], $seed);
         }
 
+        // A per-request session cookie (fresh random value) — a login/app page that never sets
+        // one, or sets a static shared one, is a classic honeypot tell. Only templates that opt
+        // in (real stateful apps) get it; static-file exposures never do.
+        if (!empty($rule['set_cookie'])) {
+            $headers['Set-Cookie'] = $rule['set_cookie'] . '=' . bin2hex(random_bytes(16)) . '; path=/; HttpOnly';
+        }
+
         if ($style === Style::TAUNT && isset($rule['taunt'])) {
             $body = $this->applyTaunt($body, (array) $rule['taunt']);
         }

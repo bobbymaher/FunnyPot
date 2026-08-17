@@ -45,11 +45,19 @@ final class ResponseSynthesizer
     private string $lastSkipReason = '';
     private ?EmulatorRegistry $emulators;
     private string $style;
+    private ?string $serverHeader;
+    private ?string $poweredBy;
 
-    public function __construct(?EmulatorRegistry $emulators = null, string $style = Style::MINIMAL)
-    {
+    public function __construct(
+        ?EmulatorRegistry $emulators = null,
+        string $style = Style::MINIMAL,
+        ?string $serverHeader = null,
+        ?string $poweredBy = null
+    ) {
         $this->emulators = $emulators;
         $this->style = Style::isValid($style) ? $style : Style::MINIMAL;
+        $this->serverHeader = $serverHeader;
+        $this->poweredBy = $poweredBy;
     }
 
     /**
@@ -382,6 +390,16 @@ final class ResponseSynthesizer
         // deterministic bodies would otherwise be catalogued by content hash; a varying
         // request id (like real servers send) breaks that. Pure hex — cannot contain a
         // forbidden/hf substring or a CRLF, and never a matcher target.
+        // Coherent server identity: one host presents one Server banner (+ optional
+        // X-Powered-By) on every response, so header recon can't catch a bare PHP server
+        // sitting behind a product fake. A bundle/emulator header still wins if it set one.
+        if ($this->serverHeader !== null && !isset($headers['Server'])) {
+            $headers['Server'] = $this->serverHeader;
+        }
+        if ($this->poweredBy !== null && !isset($headers['X-Powered-By'])) {
+            $headers['X-Powered-By'] = $this->poweredBy;
+        }
+
         if (!isset($headers['X-Request-Id'])) {
             $headers['X-Request-Id'] = bin2hex(random_bytes(8));
         }

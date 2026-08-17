@@ -3,11 +3,10 @@ priority: 130
 # Exchange / OWA logon page — dresses the existing microsoft-exchange-panel bundle.
 match:
   template_needle: [microsoft-exchange-panel, exchange-admin]
+set_cookie: ASP.NET_SessionId
 response:
   headers:
     Content-Type: "text/html; charset=utf-8"
-    Server: "Microsoft-IIS/10.0"
-    X-Powered-By: "ASP.NET"
   body: |
     <!DOCTYPE html>
     <html><head><title>Outlook</title></head>

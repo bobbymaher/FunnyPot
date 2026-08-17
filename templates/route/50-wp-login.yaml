@@ -3,6 +3,7 @@ priority: 50
 # WordPress wp-login.php with open registration; all links point at an example.com blog.
 match:
   template_needle: [wordpress-login, wp-enabled-registration, wp-registration-enabled]
+set_cookie: PHPSESSID
 response:
   headers:
     Content-Type: "text/html; charset=UTF-8"

@@ -23,7 +23,9 @@ final class ResponseEmitter
                 || preg_match('/[\r\n\x00]/', (string) $value) === 1) {
                 continue;
             }
-            header($name . ': ' . $value, true);
+            // Set-Cookie must append (a response can carry several, e.g. a session cookie
+            // plus a planted honeytoken); every other header replaces.
+            header($name . ': ' . $value, strcasecmp((string) $name, 'Set-Cookie') !== 0);
         }
 
         echo $response->body;

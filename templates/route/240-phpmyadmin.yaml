@@ -10,6 +10,7 @@ new_page:
   tags: [phpmyadmin, panel, exposure]
   name: 'phpMyAdmin login'
   body_words: ['phpMyAdmin']
+set_cookie: phpMyAdmin
 response:
   headers:
     Content-Type: "text/html; charset=utf-8"

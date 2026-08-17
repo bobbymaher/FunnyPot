@@ -217,6 +217,7 @@ define(\'WP_DEBUG\', false);
       'open' => '<!--',
       'close' => '-->',
     ),
+    'set_cookie' => 'PHPSESSID',
   ),
   5 => 
   array (
@@ -462,6 +463,7 @@ INSERT INTO `panel_admins` VALUES (1,\'admin\',\'$2y$10${{fake.adminpw:hex:53}}\
       'open' => '<!--',
       'close' => '-->',
     ),
+    'set_cookie' => 'JSESSIONID',
   ),
   12 => 
   array (
@@ -490,8 +492,6 @@ INSERT INTO `panel_admins` VALUES (1,\'admin\',\'$2y$10${{fake.adminpw:hex:53}}\
     'headers' => 
     array (
       'Content-Type' => 'text/html; charset=utf-8',
-      'Server' => 'Microsoft-IIS/10.0',
-      'X-Powered-By' => 'ASP.NET',
     ),
     'taunt' => 
     array (
@@ -499,6 +499,7 @@ INSERT INTO `panel_admins` VALUES (1,\'admin\',\'$2y$10${{fake.adminpw:hex:53}}\
       'open' => '<!--',
       'close' => '-->',
     ),
+    'set_cookie' => 'ASP.NET_SessionId',
   ),
   13 => 
   array (
@@ -534,6 +535,7 @@ INSERT INTO `panel_admins` VALUES (1,\'admin\',\'$2y$10${{fake.adminpw:hex:53}}\
       'open' => '<!--',
       'close' => '-->',
     ),
+    'set_cookie' => 'PHPSESSID',
   ),
   14 => 
   array (
@@ -568,6 +570,7 @@ INSERT INTO `panel_admins` VALUES (1,\'admin\',\'$2y$10${{fake.adminpw:hex:53}}\
       'open' => '<!--',
       'close' => '-->',
     ),
+    'set_cookie' => 'PHPSESSID',
   ),
   15 => 
   array (
@@ -631,6 +634,7 @@ INSERT INTO `panel_admins` VALUES (1,\'admin\',\'$2y$10${{fake.adminpw:hex:53}}\
       'open' => '<!--',
       'close' => '-->',
     ),
+    'set_cookie' => 'NSC_AAAC',
   ),
   17 => 
   array (
@@ -703,6 +707,7 @@ INSERT INTO `panel_admins` VALUES (1,\'admin\',\'$2y$10${{fake.adminpw:hex:53}}\
       'open' => '<!--',
       'close' => '-->',
     ),
+    'set_cookie' => 'sessionid',
   ),
   19 => 
   array (
@@ -735,7 +740,6 @@ INSERT INTO `panel_admins` VALUES (1,\'admin\',\'$2y$10${{fake.adminpw:hex:53}}\
     'headers' => 
     array (
       'Content-Type' => 'text/html;charset=utf-8',
-      'Server' => 'Apache-Coyote/1.1',
     ),
     'taunt' => 
     array (
@@ -743,6 +747,7 @@ INSERT INTO `panel_admins` VALUES (1,\'admin\',\'$2y$10${{fake.adminpw:hex:53}}\
       'open' => '<!--',
       'close' => '-->',
     ),
+    'set_cookie' => 'JSESSIONID',
   ),
   20 => 
   array (
@@ -935,5 +940,6 @@ INSERT INTO `users` VALUES (1,\'admin@example.com\',\'$2y$10${{fake.pw:hex:53}}\
       'open' => '<!--',
       'close' => '-->',
     ),
+    'set_cookie' => 'phpMyAdmin',
   ),
 );

@@ -35,7 +35,12 @@ final class Honeypot implements Engine
     ) {
         $this->config = $config ?? new Config();
         $this->observer = $observer ?? new NullObserver();
-        $this->synthesizer = new ResponseSynthesizer(EmulatorRegistry::default(), $this->config->responseStyle);
+        $this->synthesizer = new ResponseSynthesizer(
+            EmulatorRegistry::default(),
+            $this->config->responseStyle,
+            $this->config->serverHeader,
+            $this->config->poweredBy
+        );
         $this->attackEmulator = $this->config->attackEmulation ? TemplateAttackEmulator::fromPackage() : null;
     }
 

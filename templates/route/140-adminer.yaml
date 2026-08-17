@@ -3,6 +3,7 @@ priority: 140
 # Adminer database login page — dresses the existing adminer-panel bundle.
 match:
   template_needle: [adminer-panel]
+set_cookie: PHPSESSID
 response:
   headers:
     Content-Type: "text/html; charset=utf-8"

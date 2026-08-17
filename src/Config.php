@@ -32,6 +32,15 @@ final class Config
      * @param Closure|null  $probeSignature  fn(RequestContext):bool — root/homepage (sig=1) fires ONLY when true; null ⇒ never
      * @param string        $seedSalt        per-deploy salt so persona differs per site
      * @param string[]      $exclude         template ids or tags to never serve
+     * @param string|null   $serverHeader    Server banner emitted on EVERY response, so one host
+     *                                       presents one coherent server identity (anti-fingerprint).
+     *                                       null ⇒ don't force one.
+     * @param string|null   $poweredBy       X-Powered-By emitted on every response, consistent with
+     *                                       $serverHeader. null ⇒ omit (many servers don't send it).
+     * @param string|null   $honeytokenKey   HMAC key for the tamper-evident bait cookie. Set it and
+     *                                       the app plants a signed `role=user` cookie; a request that
+     *                                       returns it altered (e.g. role=admin) is a HIGH-signal
+     *                                       privilege-escalation attempt. null ⇒ feature off.
      */
     public function __construct(
         public string $mode = 'detect',
@@ -49,7 +58,10 @@ final class Config
         public ?Closure $killSwitch = null,
         public ?Closure $probeSignature = null,
         public string $seedSalt = '',
-        public array $exclude = []
+        public array $exclude = [],
+        public ?string $serverHeader = null,
+        public ?string $poweredBy = null,
+        public ?string $honeytokenKey = null
     ) {
     }
 

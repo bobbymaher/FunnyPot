@@ -4,6 +4,7 @@ priority: 150
 # meta tag is the exact marker the nuclei template looks for.
 match:
   template_needle: [joomla-panel]
+set_cookie: PHPSESSID
 response:
   headers:
     Content-Type: "text/html; charset=utf-8"

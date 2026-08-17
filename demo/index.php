@@ -20,18 +20,41 @@ declare(strict_types=1);
 require __DIR__ . '/autoload.php';
 
 use Funnypot\Config;
-use Funnypot\Http\ResponseEmitter;
 use Funnypot\Honeypot;
+use Funnypot\Honeytoken;
+use Funnypot\Http\ResponseEmitter;
+use Funnypot\Log4ShellProbe;
 use Funnypot\RequestContext;
 
 $logFile = getenv('FUNNYPOT_LOG') ?: __DIR__ . '/storage/hits.log';
 @mkdir(dirname($logFile), 0777, true);
 
-// Never leak the real PHP version — replace the banner with a plausible fake.
-header('X-Powered-By: ' . (getenv('FUNNYPOT_POWERED_BY') ?: 'PHP/7.4.33'));
+// Coherent chrome: one consistent X-Powered-By on every response (nginx owns Server), so
+// header recon can't catch a version mismatch between the fake bodies and the server banner.
+$poweredBy = getenv('FUNNYPOT_POWERED_BY') ?: 'PHP/8.1.27';
+header('X-Powered-By: ' . $poweredBy);
 
 $context = RequestContext::fromGlobals();
 $clientIp = demo_client_ip();
+
+// Anti-fingerprint tripwire: plant a signed bait cookie on every response and classify what
+// comes back — a client that returns it tampered (role escalated) is a high-signal probe no
+// ordinary visitor produces. Off unless FUNNYPOT_HONEYTOKEN_KEY is set.
+$honeytokenKey = getenv('FUNNYPOT_HONEYTOKEN_KEY') ?: '';
+$tokenVerdict = 'off';
+if ($honeytokenKey !== '') {
+    $token = new Honeytoken($honeytokenKey);
+    $tokenVerdict = $token->inspect($_COOKIE['sess'] ?? null);
+    header('Set-Cookie: ' . $token->cookie('sess', 'r=user'), false);
+}
+
+// A believable robots.txt whose Disallow list dangles the juicy honeypot paths at a crawler.
+if ($context->method === 'GET' && $context->path === '/robots.txt') {
+    header('Content-Type: text/plain; charset=utf-8');
+    echo demo_robots();
+
+    return true;
+}
 
 // A browser viewing our own dashboard auto-requests /favicon.ico. If it came from our
 // page (same-origin Referer), ignore it — no honeypot, no log noise. A scanner probing
@@ -73,7 +96,9 @@ $funnypot = Honeypot::default(new Config(
     latencyJitterMs: (int) (getenv('FUNNYPOT_JITTER_MS') ?: 40),
     // Interactive attack-class emulation (LFI/SQLi/SSTI/cmd-inj/reflected-XSS) on any
     // endpoint, not just nuclei-known paths. On by default in the demo.
-    attackEmulation: getenv('FUNNYPOT_ATTACK') !== '0'
+    attackEmulation: getenv('FUNNYPOT_ATTACK') !== '0',
+    // Coherent X-Powered-By on the fake responses too, so they match the server chrome.
+    poweredBy: $poweredBy
 ));
 
 $detection = $funnypot->detect($context);
@@ -97,6 +122,9 @@ demo_log($logFile, [
     // capture the exploit payload an attacker POSTs (truncated)
     'body' => $context->rawBody !== null ? substr($context->rawBody, 0, 300) : null,
     'referer' => substr($context->headers['Referer'] ?? '', 0, 160) ?: null,
+    // Threat-intel enrichment: OOB probes we can't fake but should flag.
+    'log4shell' => Log4ShellProbe::present($context) ?: null,
+    'honeytoken' => $tokenVerdict !== 'off' ? $tokenVerdict : null,
 ]);
 
 if ($response !== null) {
@@ -186,6 +214,25 @@ function demo_serve_decoy_archive(RequestContext $r, string $logFile, string $cl
     echo $bytes;
 
     return true;
+}
+
+/**
+ * A robots.txt whose Disallow list is bait — every entry points at one of the honeypot's own
+ * juicy fakes, so a crawler that "politely" probes disallowed paths walks straight into a trap.
+ */
+function demo_robots(): string
+{
+    return "User-agent: *\n"
+        . "Disallow: /.git/\n"
+        . "Disallow: /.env\n"
+        . "Disallow: /backup/\n"
+        . "Disallow: /wp-admin/\n"
+        . "Disallow: /phpmyadmin/\n"
+        . "Disallow: /admin/\n"
+        . "Disallow: /credentials.txt\n"
+        . "Disallow: /backup.sql\n"
+        . "Disallow: /.aws/\n"
+        . "Sitemap: https://www.example.com/sitemap.xml\n";
 }
 
 /**

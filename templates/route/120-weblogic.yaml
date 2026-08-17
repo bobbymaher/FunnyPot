@@ -3,6 +3,7 @@ priority: 120
 # Oracle WebLogic admin console login — dresses the existing weblogic nuclei bundle.
 match:
   template_needle: [weblogic-login, weblogic]
+set_cookie: JSESSIONID
 response:
   headers:
     Content-Type: "text/html; charset=UTF-8"

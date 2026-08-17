@@ -3,6 +3,7 @@ priority: 190
 # Django admin login — dresses the existing django-admin-panel bundle.
 match:
   template_needle: [django-admin-panel, default-django-page]
+set_cookie: sessionid
 response:
   headers:
     Content-Type: "text/html; charset=utf-8"
