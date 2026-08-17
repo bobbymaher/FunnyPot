@@ -69,6 +69,14 @@ if ($context->path === '/favicon.ico') {
     }
 }
 
+// Password-gated admin actions (retention prune / clear) — POST only; the public view stays
+// open. Disabled unless FUNNYPOT_ADMIN_PASSWORD is set.
+if ($context->method === 'POST' && $context->path === '/' && isset($_GET['admin'])) {
+    demo_admin($logFile, (string) $_GET['admin']);
+
+    return true;
+}
+
 // Homepage / dashboard (and its JSON feed for live AJAX updates).
 if ($context->method === 'GET' && ($context->path === '/' || $context->path === '/index.php')) {
     if (isset($_GET['feed'])) {
@@ -284,15 +292,106 @@ function demo_recent(string $logFile, int $limit = 200): array
 }
 
 /**
- * JSON feed of recent hits + stats, polled by the dashboard for live updates.
+ * Live JSON feed. DELTA mode: return only the rows appended since the client's byte-offset
+ * cursor, so a poll ships just the new rows — not the whole tail every time. `after` empty or
+ * a stale cursor (after log rotation/prune) returns a fresh snapshot with reset=true.
+ *
+ * Modes via $_GET:
+ *   feed=1&after=<byteOffset>  live delta (default)
+ *   feed=older&skip=<n>        page back through history (newest-first, 100 at a time)
  */
 function demo_feed(string $logFile): void
 {
-    $rows = demo_recent($logFile);
-    $detections = 0;
-    $served = 0;
+    header('Content-Type: application/json');
+    header('Cache-Control: no-store');
+
+    if (($_GET['feed'] ?? '') === 'older') {
+        $skip = max(0, (int) ($_GET['skip'] ?? 0));
+        $rows = demo_recent($logFile, $skip + 100);
+        $page = array_slice($rows, $skip, 100);
+        echo json_encode([
+            'rows' => array_map('demo_row', $page),
+            'more' => count($rows) > $skip + 100,
+        ], JSON_UNESCAPED_SLASHES);
+
+        return;
+    }
+
+    $size = is_file($logFile) ? (int) filesize($logFile) : 0;
+    $after = (int) ($_GET['after'] ?? 0);
+    $reset = ($after <= 0 || $after > $size);
+
+    // reset -> newest 100 as a snapshot; otherwise just what was appended past the cursor.
+    $rows = $reset
+        ? array_reverse(demo_recent($logFile, 100))
+        : demo_read_from($logFile, $after);
+
+    echo json_encode([
+        'cursor' => $size,
+        'reset' => $reset,
+        'rows' => array_map('demo_row', $rows),
+        'stats' => demo_stats($logFile),
+    ], JSON_UNESCAPED_SLASHES);
+}
+
+/**
+ * The compact row shape the dashboard renders.
+ *
+ * @param array<string,mixed> $r
+ * @return array<string,mixed>
+ */
+function demo_row(array $r): array
+{
+    return [
+        'ts' => (string) ($r['ts'] ?? ''),
+        'ip' => (string) ($r['ip'] ?? ''),
+        'method' => (string) ($r['method'] ?? ''),
+        'path' => (string) ($r['path'] ?? ''),
+        'matched' => !empty($r['matched']),
+        'severity' => (string) ($r['severity'] ?? ''),
+        'served' => !empty($r['served']),
+        'templates' => array_slice((array) ($r['templates'] ?? []), 0, 6),
+        'body' => (string) ($r['body'] ?? ''),
+    ];
+}
+
+/**
+ * Rows appended to the log after byte offset $from, oldest-first. The cursor is always the
+ * previous file size, i.e. a newline boundary, so fgets() reads whole lines.
+ *
+ * @return array<int,array<string,mixed>>
+ */
+function demo_read_from(string $logFile, int $from): array
+{
+    $rows = [];
+    $fh = @fopen($logFile, 'rb');
+    if ($fh === false) {
+        return $rows;
+    }
+    if (@fseek($fh, $from) === 0) {
+        while (($line = fgets($fh)) !== false) {
+            $row = json_decode(trim($line), true);
+            if (is_array($row)) {
+                $rows[] = $row;
+            }
+        }
+    }
+    fclose($fh);
+
+    return $rows;
+}
+
+/**
+ * Stats over a recent tail window (labelled honestly on the UI). The optional SQLite store
+ * gives true all-time aggregates; the file-only mode reports the window.
+ *
+ * @return array<string,int>
+ */
+function demo_stats(string $logFile): array
+{
+    $rows = demo_recent($logFile, 5000);
+    $detections = $served = $harvested = 0;
     $ips = [];
-    $out = [];
     foreach ($rows as $r) {
         if (!empty($r['matched'])) {
             $detections++;
@@ -300,40 +399,66 @@ function demo_feed(string $logFile): void
         if (!empty($r['served'])) {
             $served++;
         }
-        $ips[$r['ip'] ?? ''] = true;
-        $out[] = [
-            'ts' => (string) ($r['ts'] ?? ''),
-            'ip' => (string) ($r['ip'] ?? ''),
-            'method' => (string) ($r['method'] ?? ''),
-            'path' => (string) ($r['path'] ?? ''),
-            'matched' => !empty($r['matched']),
-            'severity' => (string) ($r['severity'] ?? ''),
-            'served' => !empty($r['served']),
-            'templates' => array_slice((array) ($r['templates'] ?? []), 0, 6),
-            // captured exploit payload / credentials the attacker POSTed
-            'body' => (string) ($r['body'] ?? ''),
-        ];
-    }
-
-    $harvested = 0;
-    foreach ($out as $row) {
-        if ($row['body'] !== '') {
+        if (!empty($r['body'])) {
             $harvested++;
         }
+        $ips[(string) ($r['ip'] ?? '')] = true;
     }
 
+    return [
+        'total' => count($rows),
+        'detections' => $detections,
+        'served' => $served,
+        'ips' => count($ips),
+        'harvested' => $harvested,
+    ];
+}
+
+/**
+ * Password-gated admin actions. The dashboard VIEW stays public; only mutating actions
+ * (retention prune, clear) require FUNNYPOT_ADMIN_PASSWORD. Disabled if that env is unset.
+ */
+function demo_admin(string $logFile, string $action): void
+{
     header('Content-Type: application/json');
     header('Cache-Control: no-store');
-    echo json_encode([
-        'stats' => [
-            'total' => count($rows),
-            'detections' => $detections,
-            'served' => $served,
-            'ips' => count($ips),
-            'harvested' => $harvested,
-        ],
-        'rows' => $out,
-    ], JSON_UNESCAPED_SLASHES);
+
+    $pass = getenv('FUNNYPOT_ADMIN_PASSWORD') ?: '';
+    $given = (string) ($_SERVER['HTTP_X_ADMIN_TOKEN'] ?? ($_POST['key'] ?? ''));
+    if ($pass === '' || !hash_equals($pass, $given)) {
+        http_response_code(403);
+        echo json_encode(['error' => $pass === '' ? 'admin disabled (set FUNNYPOT_ADMIN_PASSWORD)' : 'forbidden']);
+
+        return;
+    }
+
+    if ($action === 'prune') {
+        $keep = max(0, (int) ($_POST['keep'] ?? 1000));
+        demo_prune($logFile, $keep);
+        echo json_encode(['ok' => true, 'kept' => $keep]);
+
+        return;
+    }
+    if ($action === 'clear') {
+        @file_put_contents($logFile, '', LOCK_EX);
+        echo json_encode(['ok' => true, 'cleared' => true]);
+
+        return;
+    }
+
+    http_response_code(400);
+    echo json_encode(['error' => 'unknown action']);
+}
+
+/** Retention: rewrite the log keeping only the newest $keep lines. */
+function demo_prune(string $logFile, int $keep): void
+{
+    if (!is_file($logFile)) {
+        return;
+    }
+    $lines = @file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
+    $lines = array_slice($lines, -$keep);
+    @file_put_contents($logFile, $lines === [] ? '' : implode("\n", $lines) . "\n", LOCK_EX);
 }
 
 /**
@@ -372,36 +497,65 @@ function demo_render_shell(string $logFile): void
       .empty{color:var(--muted);text-align:center;padding:20px}
       .payload{color:var(--red);font-size:12px;word-break:break-all;margin-top:3px;white-space:pre-wrap}
       .payload b{color:var(--muted);font-weight:600}
+      .controls{display:flex;gap:10px;align-items:center;margin-top:14px;flex-wrap:wrap}
+      .btn{background:var(--panel);border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:7px 14px;font:inherit;font-size:13px;cursor:pointer}
+      .btn:hover{border-color:var(--amber)}.btn:disabled{opacity:.5;cursor:default}
+      .admin{margin-left:auto;display:flex;gap:8px}.admin .btn{color:var(--muted)}
+      .note{color:var(--muted);font-size:11px;margin-top:4px}
       footer{color:var(--muted);margin-top:18px;font-size:12px}
     CSS;
 
     $js = <<<'JS'
       const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-      const seen=new Set();let first=true;
-      const set=(id,v)=>{document.getElementById(id).textContent=v;};
+      const $=id=>document.getElementById(id);
+      let cursor=0, older=0, started=false;
+      const seen=new Set();
+      const key=r=>[r.ts,r.ip,r.method,r.path,r.severity||''].join('|');
+      function rowEl(r){
+        const tr=document.createElement('tr');
+        const badge=r.matched?`<span class="badge scan">SCAN ${esc((r.severity||'').toUpperCase())}</span>`:'<span class="badge miss">404</span>';
+        const ids=(r.templates&&r.templates.length)?`<div class="ids">${esc(r.templates.join(', '))}</div>`:'';
+        const payload=r.body?`<div class="payload"><b>payload:</b> ${esc(r.body)}</div>`:'';
+        const served=r.served?'<span class="served">served</span>':'&mdash;';
+        const t=(r.ts||'').substr(11,8);
+        tr.innerHTML=`<td>${t}</td><td>${esc(r.ip)}</td><td class="path"><b>${esc(r.method)}</b> ${esc(r.path)}${ids}${payload}</td><td>${badge}</td><td>${served}</td>`;
+        return tr;
+      }
+      const empty=()=>{$('rows').innerHTML='<tr><td colspan=5 class=empty>No hits yet &mdash; point a scanner at this host.</td></tr>';};
       async function tick(){
         try{
-          const d=await (await fetch('/?feed=1',{cache:'no-store'})).json();
-          set('total',d.stats.total);set('detections',d.stats.detections);
-          set('served',d.stats.served);set('ips',d.stats.ips);set('harvested',d.stats.harvested);
-          const tb=document.getElementById('rows');
-          if(!d.rows.length){tb.innerHTML='<tr><td colspan=5 class=empty>No hits yet &mdash; point a scanner at this host.</td></tr>';}
-          else{
-            tb.innerHTML=d.rows.map(r=>{
-              const key=r.ts+'|'+r.ip+'|'+r.path;
-              const isNew=!first&&!seen.has(key);
-              const badge=r.matched?`<span class="badge scan">SCAN ${esc((r.severity||'').toUpperCase())}</span>`:'<span class="badge miss">404</span>';
-              const ids=(r.templates&&r.templates.length)?`<div class="ids">${esc(r.templates.join(', '))}</div>`:'';
-              const payload=r.body?`<div class="payload"><b>payload:</b> ${esc(r.body)}</div>`:'';
-              const served=r.served?'<span class="served">served</span>':'&mdash;';
-              const t=(r.ts||'').substr(11,8);
-              return `<tr class="${isNew?'flash':''}"><td>${t}</td><td>${esc(r.ip)}</td><td class="path"><b>${esc(r.method)}</b> ${esc(r.path)}${ids}${payload}</td><td>${badge}</td><td>${served}</td></tr>`;
-            }).join('');
-          }
-          d.rows.forEach(r=>seen.add(r.ts+'|'+r.ip+'|'+r.path));
-          first=false;document.getElementById('live').classList.add('on');
-        }catch(e){document.getElementById('live').classList.remove('on');}
+          const d=await (await fetch('/?feed=1&after='+cursor,{cache:'no-store'})).json();
+          const tb=$('rows');
+          if(d.reset){tb.innerHTML='';seen.clear();older=0;}
+          // delta rows arrive oldest-first; prepend so the newest lands on top.
+          d.rows.forEach(r=>{const k=key(r);if(seen.has(k))return;seen.add(k);const el=rowEl(r);if(started)el.classList.add('flash');tb.insertBefore(el,tb.firstChild);});
+          while(tb.children.length>500)tb.removeChild(tb.lastChild);
+          cursor=d.cursor;
+          if(d.stats)['total','detections','served','ips','harvested'].forEach(k=>$(k).textContent=d.stats[k]);
+          if(!tb.children.length)empty();
+          started=true;$('live').classList.add('on');
+        }catch(e){$('live').classList.remove('on');}
       }
+      async function loadOlder(){
+        const b=$('older');b.disabled=true;
+        try{
+          const d=await (await fetch('/?feed=older&skip='+older,{cache:'no-store'})).json();
+          const tb=$('rows');
+          d.rows.forEach(r=>{const k=key(r);if(seen.has(k))return;seen.add(k);tb.appendChild(rowEl(r));});
+          older+=d.rows.length;
+          b.style.display=d.more?'':'none';
+        }finally{b.disabled=false;}
+      }
+      function token(){let t=sessionStorage.getItem('fp_admin');if(!t){t=prompt('Admin password')||'';if(t)sessionStorage.setItem('fp_admin',t);}return t;}
+      async function admin(action,body){
+        const t=token();if(!t)return;
+        const r=await fetch('/?admin='+action,{method:'POST',headers:{'X-Admin-Token':t,'Content-Type':'application/x-www-form-urlencoded'},body:body||''});
+        if(r.status===403){sessionStorage.removeItem('fp_admin');alert('Admin disabled server-side, or wrong password.');return;}
+        alert(JSON.stringify(await r.json()));cursor=0;older=0;seen.clear();tick();
+      }
+      $('older').onclick=loadOlder;
+      $('prune').onclick=()=>{if(confirm('Prune the log to the newest 1000 lines?'))admin('prune','keep=1000');};
+      $('clear').onclick=()=>{if(confirm('Delete ALL captured data? This cannot be undone.'))admin('clear');};
       tick();setInterval(tick,3000);
     JS;
 
@@ -418,8 +572,11 @@ function demo_render_shell(string $logFile): void
     echo "<div class=stat><b id=ips>&mdash;</b><span>unique IPs</span></div>";
     echo "<div class=stat><b id=harvested>&mdash;</b><span>payloads captured</span></div>";
     echo "</div>";
+    echo "<div class=note>stats cover the recent window (last 5,000 events).</div>";
     echo "<table><thead><tr><th>time</th><th>ip</th><th>request</th><th>verdict</th><th>fake?</th></tr></thead>";
     echo "<tbody id=rows><tr><td colspan=5 class=empty>connecting&hellip;</td></tr></tbody></table>";
+    echo "<div class=controls><button id=older class=btn>load older</button>";
+    echo "<span class=admin><button id=prune class=btn title='keep newest 1000 events'>prune</button><button id=clear class=btn>clear</button></span></div>";
     echo "<footer>funnypot &mdash; a honeypot that turns scanner probes into wasted time.</footer>";
     echo "<script>{$js}</script>";
     echo "</div></body></html>";

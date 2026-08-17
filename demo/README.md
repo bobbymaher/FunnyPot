@@ -65,6 +65,13 @@ Watch them appear on the homepage, and stream the raw log with `docker logs -f <
 | `FUNNYPOT_STYLE` | `realistic` | `minimal` \| `realistic` \| `taunt` |
 | `FUNNYPOT_LOG` | `demo/storage/hits.log` | where hit JSON lines are written |
 | `FUNNYPOT_DECOY_ARCHIVE` | on | serve a nested decoy archive for `.zip`/`.tar.gz` 404s; `0` to disable |
+| `FUNNYPOT_ADMIN_PASSWORD` | unset | enables the dashboard's password-gated admin actions (prune / clear). Unset = admin disabled, view stays public |
+
+The dashboard polls a **delta feed** (`/?feed=1&after=<cursor>`) that returns only rows appended
+since the last poll — not the whole tail every time — and appends them in place. **Load older**
+pages back through history (`/?feed=older&skip=`). With `FUNNYPOT_ADMIN_PASSWORD` set, **prune**
+(retention: keep newest N) and **clear** are available behind the password; the public view is
+unaffected.
 
 > The demo serves a fake to **every** matched probe (`gate` is always open) and reveals itself on
 > the homepage — that's the point of a *demo*. For real deployment, gate on your own suspicion
