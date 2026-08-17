@@ -38,7 +38,10 @@ if ! command -v docker >/dev/null 2>&1; then
     exit 1
 fi
 
-SSH_OPTS=(-i "$KEY" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20)
+# Port the host's real sshd listens on. Set FUNNYPOT_SSH_PORT once you've moved sshd off 22
+# (scripts/move-sshd-port.sh) so the honeypot can take port 22 — otherwise deploy locks out.
+SSH_PORT="${FUNNYPOT_SSH_PORT:-22}"
+SSH_OPTS=(-i "$KEY" -p "$SSH_PORT" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20)
 # Known HTTP + alt-HTTP + app/panel ports (nginx) plus the TCP protocol-honeypot ports
 # (redis/ftp/smtp/telnet/memcached/ssh). Keep in sync with demo/nginx.conf + demo/entrypoint.sh
 # and open the matching inbound rules in the EC2 security group (the SG gates reachability).
@@ -64,6 +67,10 @@ docker save funnypot | gzip | ssh "${SSH_OPTS[@]}" "$USER@$HOST" 'gunzip | sudo 
 echo "==> [4/4] (re)start container (logs persisted to ~/funnypot-data on the host)"
 PFLAGS=""
 for p in $PORTS; do PFLAGS="$PFLAGS -p $p:$p"; done
+# Serve the SSH honeypot on the real port 22 (host 22 -> container's ssh listener on 2222).
+# Requires the host's own sshd to have vacated 22 first (scripts/move-sshd-port.sh) and
+# FUNNYPOT_SSH_PORT set to the moved sshd port above.
+if [ "${FUNNYPOT_SSH_ON_22:-0}" = "1" ]; then PFLAGS="$PFLAGS -p 22:2222"; fi
 # \$HOME etc. expand on the REMOTE; \$PFLAGS expands locally.
 # shellcheck disable=SC2029
 ssh "${SSH_OPTS[@]}" "$USER@$HOST" "
