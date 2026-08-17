@@ -259,8 +259,12 @@ final class Store
         if (!is_dir($dir)) {
             @mkdir($dir, 0777, true);
         }
+        // umask 0 so the db + its -wal/-shm are group/other-writable: in the demo container the
+        // php-fpm workers (www-data) and the protocol listeners (root) share this one DB.
+        $old = umask(0);
         $db = new PDO('sqlite:' . $path, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
         $db->exec('PRAGMA journal_mode=WAL');
+        umask($old);
         $db->exec('PRAGMA busy_timeout=3000');
         $db->exec('PRAGMA synchronous=NORMAL');
         $db->exec(

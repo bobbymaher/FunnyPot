@@ -8,6 +8,14 @@ services:
       context: ..                 # repo root — the Dockerfile copies src/ resources/ from there
       dockerfile: demo/Dockerfile
     ports:
+      # TCP protocol honeypots (redis/ftp/smtp/telnet/memcached/ssh).
+      - "21:21"
+      - "23:23"
+      - "25:25"
+      - "2222:2222"
+      - "6379:6379"
+      - "11211:11211"
+      # HTTP / HTTPS.
       - "80:80"
       - "443:443"
       - "3000:3000"

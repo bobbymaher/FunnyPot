@@ -38,4 +38,17 @@ else
 fi
 
 php-fpm --daemonize
+
+# Protocol honeypots: one background listener per plaintext protocol (each is a bounded
+# select loop). They log connections + every command into the same store the dashboard reads.
+# Disable with FUNNYPOT_PROTOCOLS=0.
+if [ "${FUNNYPOT_PROTOCOLS:-1}" != "0" ]; then
+    php /app/demo/listen.php redis     0.0.0.0:6379  &
+    php /app/demo/listen.php ftp       0.0.0.0:21    &
+    php /app/demo/listen.php smtp      0.0.0.0:25    &
+    php /app/demo/listen.php telnet    0.0.0.0:23    &
+    php /app/demo/listen.php memcached 0.0.0.0:11211 &
+    php /app/demo/listen.php ssh       0.0.0.0:2222  &
+fi
+
 exec nginx -g 'daemon off;'
