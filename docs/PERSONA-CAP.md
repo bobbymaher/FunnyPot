@@ -16,7 +16,7 @@ and must NOT be cut. Realistic size after cap ≈ **4.5 MB** (keep full detect).
 `routes[key]` becomes `['d' => [full template ids], 'b' => [capped bundles], 'w' => [weights]]`.
 - `'d'` (flat full id-list) is emitted **only for capped paths**; elsewhere detect derives from
   `union(b[*].t)`. So `detect()` keeps FULL coverage while `respond()` is capped.
-- `NucleiInverter::detectionFor` reads `entry['d'] ?? union(b[*].t)` — a one-line change, and it
+- `Honeypot::detectionFor` reads `entry['d'] ?? union(b[*].t)` — a one-line change, and it
   MUST stay backward-compatible with the Phase-1 fixture `nuclei-index.php` (no `'d'`, no `'w'`).
 - Each kept bundle carries its own integer `'w'` (weight). PersonaSelector reads `bundle['w'] ?? 1`.
 

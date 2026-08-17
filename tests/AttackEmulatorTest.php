@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Funnypot\Tests;
 
 use Funnypot\Config;
-use Funnypot\NucleiInverter;
+use Funnypot\Honeypot;
 use Funnypot\RequestContext;
 use Funnypot\Store\PhpArrayStore;
 use Funnypot\Template\TemplateAttackEmulator;
@@ -117,13 +117,13 @@ final class AttackEmulatorTest extends TestCase
         self::assertNull($this->emulate('/go', 'url=https://evil.example/%0d%0aSet-Cookie:x=1'));
     }
 
-    // --- integration through NucleiInverter::respond() ---
+    // --- integration through Honeypot::respond() ---
 
-    private function inverter(array $overrides = []): NucleiInverter
+    private function inverter(array $overrides = []): Honeypot
     {
         $store = new PhpArrayStore(require __DIR__ . '/../resources/compiled/nuclei-index.php');
 
-        return new NucleiInverter($store, new Config(
+        return new Honeypot($store, new Config(
             mode: 'respond',
             gate: static fn (RequestContext $r): bool => true,
             severityCeiling: $overrides['severityCeiling'] ?? 'high',
@@ -142,7 +142,7 @@ final class AttackEmulatorTest extends TestCase
     public function test_attack_emulation_off_by_default(): void
     {
         $store = new PhpArrayStore(require __DIR__ . '/../resources/compiled/nuclei-index.php');
-        $inv = new NucleiInverter($store, new Config(mode: 'respond', gate: static fn (RequestContext $r): bool => true));
+        $inv = new Honeypot($store, new Config(mode: 'respond', gate: static fn (RequestContext $r): bool => true));
 
         self::assertNull($inv->respond(new RequestContext('GET', '/nope', 'file=../../etc/passwd')));
     }

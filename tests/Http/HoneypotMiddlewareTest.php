@@ -6,8 +6,8 @@ namespace Funnypot\Tests\Http;
 
 use Funnypot\Config;
 use Funnypot\Detection;
-use Funnypot\Http\InverterMiddleware;
-use Funnypot\NucleiInverter;
+use Funnypot\Http\HoneypotMiddleware;
+use Funnypot\Honeypot;
 use Funnypot\RequestContext;
 use Funnypot\Store\PhpArrayStore;
 use Nyholm\Psr7\Factory\Psr17Factory;
@@ -17,23 +17,23 @@ use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 
-final class InverterMiddlewareTest extends TestCase
+final class HoneypotMiddlewareTest extends TestCase
 {
     private function store(): PhpArrayStore
     {
         return new PhpArrayStore(require __DIR__ . '/../../resources/compiled/nuclei-index.php');
     }
 
-    private function middleware(string $mode = 'respond'): InverterMiddleware
+    private function middleware(string $mode = 'respond'): HoneypotMiddleware
     {
-        $inverter = new NucleiInverter($this->store(), new Config(
+        $inverter = new Honeypot($this->store(), new Config(
             mode: $mode,
             gate: static fn (RequestContext $r): bool => true
         ));
 
         $factory = new Psr17Factory();
 
-        return new InverterMiddleware($inverter, $factory, $factory);
+        return new HoneypotMiddleware($inverter, $factory, $factory);
     }
 
     public function test_known_probe_path_returns_synthesized_psr_response(): void
@@ -83,7 +83,7 @@ final class InverterMiddlewareTest extends TestCase
 
         // detect() always runs and is exposed to downstream middleware as a
         // request attribute, since PSR-15 has no observer hook of its own.
-        $detection = $handler->received->getAttribute(InverterMiddleware::ATTRIBUTE_DETECTION);
+        $detection = $handler->received->getAttribute(HoneypotMiddleware::ATTRIBUTE_DETECTION);
         self::assertInstanceOf(Detection::class, $detection);
         self::assertTrue($detection->isEmpty());
     }
@@ -105,7 +105,7 @@ final class InverterMiddlewareTest extends TestCase
         $response = $this->middleware('detect')->process($request, $handler);
 
         self::assertSame(404, $response->getStatusCode());
-        $detection = $handler->received->getAttribute(InverterMiddleware::ATTRIBUTE_DETECTION);
+        $detection = $handler->received->getAttribute(HoneypotMiddleware::ATTRIBUTE_DETECTION);
         self::assertInstanceOf(Detection::class, $detection);
         self::assertTrue($detection->matched);
         self::assertSame(['git-config'], $detection->templateIds());

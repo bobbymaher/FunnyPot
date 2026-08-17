@@ -1,6 +1,6 @@
 {
     "name": "bobbymaher/funnypot",
-    "description": "Inverse of a nuclei scanner: detect scanner probes and optionally synthesize the response the template expects.",
+    "description": "A honeypot engine: answer a scanner probe with the fake-vulnerable response it expects - by inverting nuclei templates and emulating attack classes + exposed-product endpoints.",
     "type": "library",
     "license": "MIT",
     "require": {
@@ -16,10 +16,10 @@
     },
     "suggest": {
         "symfony/yaml": "Required only to compile templates (bin/funnypot). Runtime needs PHP alone.",
-        "illuminate/support": "Required only to use the Laravel bridge (Laravel\\NucleiInverterServiceProvider).",
-        "psr/http-server-middleware": "Required only to use the PSR-15 adapter (Http\\InverterMiddleware).",
+        "illuminate/support": "Required only to use the Laravel bridge (Laravel\\FunnypotServiceProvider).",
+        "psr/http-server-middleware": "Required only to use the PSR-15 adapter (Http\\HoneypotMiddleware).",
         "psr/http-message": "Required only to use the PSR-15 adapter (Http\\PsrRequestMapper / Http\\PsrResponseMapper).",
-        "psr/http-factory": "Required only to use the PSR-15 adapter (response/stream factories passed to Http\\InverterMiddleware)."
+        "psr/http-factory": "Required only to use the PSR-15 adapter (response/stream factories passed to Http\\HoneypotMiddleware)."
     },
     "autoload": {
         "psr-4": {
@@ -37,7 +37,7 @@
     "extra": {
         "laravel": {
             "providers": [
-                "Funnypot\\Laravel\\NucleiInverterServiceProvider"
+                "Funnypot\\Laravel\\FunnypotServiceProvider"
             ]
         }
     }

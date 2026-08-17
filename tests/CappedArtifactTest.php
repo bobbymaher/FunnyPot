@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Funnypot\Tests;
 
-use Funnypot\NucleiInverter;
+use Funnypot\Honeypot;
 use Funnypot\RequestContext;
 use Funnypot\Store\PhpArrayStore;
 use PHPUnit\Framework\TestCase;
@@ -52,7 +52,7 @@ final class CappedArtifactTest extends TestCase
         self::assertGreaterThan(1000, count($entry['d']), 'GET / detect coverage is the full corpus slice');
 
         // detect() returns the full 'd' set, unaffected by the served cap.
-        $d = (new NucleiInverter($store))->detect(new RequestContext('GET', '/'));
+        $d = (new Honeypot($store))->detect(new RequestContext('GET', '/'));
         self::assertTrue($d->matched);
         self::assertSame(count($entry['d']), count($d->templateIds()));
     }

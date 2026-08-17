@@ -21,7 +21,7 @@ require __DIR__ . '/autoload.php';
 
 use Funnypot\Config;
 use Funnypot\Http\ResponseEmitter;
-use Funnypot\NucleiInverter;
+use Funnypot\Honeypot;
 use Funnypot\RequestContext;
 
 $logFile = getenv('FUNNYPOT_LOG') ?: __DIR__ . '/storage/hits.log';
@@ -59,7 +59,7 @@ if ($context->method === 'GET' && ($context->path === '/' || $context->path === 
 
 // Honeypot path: detect + (gated) respond.
 $style = getenv('FUNNYPOT_STYLE') ?: 'realistic';
-$funnypot = NucleiInverter::default(new Config(
+$funnypot = Honeypot::default(new Config(
     mode: 'respond',
     gate: static fn (RequestContext $r): bool => true,          // standalone honeypot: everything hostile-looking gets a fake
     // A deliberate honeypot wants to look maximally vulnerable, so serve even the
@@ -373,7 +373,7 @@ function demo_render_shell(string $logFile): void
     echo "</div>";
     echo "<table><thead><tr><th>time</th><th>ip</th><th>request</th><th>verdict</th><th>fake?</th></tr></thead>";
     echo "<tbody id=rows><tr><td colspan=5 class=empty>connecting&hellip;</td></tr></tbody></table>";
-    echo "<footer>funnypot &mdash; the inverse of a nuclei scanner.</footer>";
+    echo "<footer>funnypot &mdash; a honeypot that turns scanner probes into wasted time.</footer>";
     echo "<script>{$js}</script>";
     echo "</div></body></html>";
 }

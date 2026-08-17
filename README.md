@@ -14,6 +14,11 @@ It ships a prebuilt index compiled from ~11k nuclei HTTP templates (**5,000+** i
 **runtime needs PHP only** — no YAML, no extensions, no network. Framework-agnostic core with
 PSR-15 and Laravel adapters.
 
+Template inversion is the core, but funnypot is a full deception layer, not just a nuclei mirror.
+It also **emulates attack classes** (LFI, SQLi, SSTI, command-injection, XXE, reflected XSS…) on
+*any* endpoint, and serves **believable product pages** (login panels, exposed configs, secret
+files) so a probe that isn't in the template corpus still gets a plausible fake.
+
 > Defensive deception for your own infrastructure. Every fake is inert (example.com hosts,
 > RFC-5737 IPs, dummy secrets) and never a real or working credential.
 
@@ -30,10 +35,10 @@ composer require bobbymaher/funnypot
 Detect mode is always safe — it never writes to the wire:
 
 ```php
-use Funnypot\NucleiInverter;
+use Funnypot\Honeypot;
 use Funnypot\RequestContext;
 
-$funnypot = NucleiInverter::default();
+$funnypot = Honeypot::default();
 
 $detection = $funnypot->detect(RequestContext::fromGlobals());
 if ($detection->matched) {
@@ -46,11 +51,11 @@ Respond mode (the honeypot) is opt-in and gated by your app:
 
 ```php
 use Funnypot\Config;
-use Funnypot\NucleiInverter;
+use Funnypot\Honeypot;
 use Funnypot\RequestContext;
 use Funnypot\Http\ResponseEmitter;
 
-$funnypot = NucleiInverter::default(new Config(
+$funnypot = Honeypot::default(new Config(
     mode: 'respond',
     gate: fn (RequestContext $r) => isSuspicious($r),   // your suspicion predicate
     responseStyle: 'realistic',                          // minimal | realistic | taunt
@@ -87,12 +92,12 @@ drop-in; the essence:
 
 ```php
 // app/Exceptions/Handler.php  (render(), on a 404)
-use Funnypot\Inverter;
+use Funnypot\Engine;
 use Funnypot\RequestContext;
 use Funnypot\Http\ResponseEmitter;
 
 if ($e instanceof \Symfony\Component\HttpKernel\Exception\NotFoundHttpException) {
-    $response = app(Inverter::class)->respond(RequestContext::fromGlobals());
+    $response = app(Engine::class)->respond(RequestContext::fromGlobals());
     if ($response !== null) {
         ResponseEmitter::emit($response);
         exit;
@@ -105,8 +110,8 @@ Config (`config/funnypot.php`, published): defaults to `mode = detect` (inert). 
 by setting `mode = respond` and supplying a `gate`. Start detect-only, watch the logs, then flip
 respond on.
 
-Or use the PSR-15 / Laravel middleware — see `src/Http/InverterMiddleware.php` and
-`src/Laravel/InverterMiddleware.php`.
+Or use the PSR-15 / Laravel middleware — see `src/Http/HoneypotMiddleware.php` and
+`src/Laravel/HoneypotMiddleware.php`.
 
 ## Run as a standalone honeypot (Docker)
 

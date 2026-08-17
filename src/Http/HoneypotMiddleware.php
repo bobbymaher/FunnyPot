@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Funnypot\Http;
 
-use Funnypot\Inverter;
+use Funnypot\Engine;
 use Psr\Http\Message\ResponseFactoryInterface;
 use Psr\Http\Message\ResponseInterface;
 use Psr\Http\Message\ServerRequestInterface;
@@ -19,12 +19,12 @@ use Psr\Http\Server\RequestHandlerInterface;
  * reads it regardless of mode. respond() then decides whether to serve a
  * synthesized response in place of the downstream handler; core untouched.
  */
-final class InverterMiddleware implements MiddlewareInterface
+final class HoneypotMiddleware implements MiddlewareInterface
 {
     public const ATTRIBUTE_DETECTION = 'funnypot.detection';
 
     public function __construct(
-        private Inverter $inverter,
+        private Engine $inverter,
         private ResponseFactoryInterface $responseFactory,
         private StreamFactoryInterface $streamFactory
     ) {

@@ -8,7 +8,7 @@ namespace Funnypot;
  * App-policy seam. The core calls these on the respond() path so all logging,
  * scoring, and banning live in the host app — the core stays side-effect-free.
  */
-interface InverterObserver
+interface Observer
 {
     /**
      * A request routed to a known scanner probe. Fires even when respond() then

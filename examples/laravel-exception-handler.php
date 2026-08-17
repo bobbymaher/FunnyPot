@@ -7,8 +7,8 @@
  * unmatched requests (404s) into the honeypot. Start with detect-only, watch your logs,
  * then turn respond mode on.
  *
- * The Laravel service provider (Funnypot\Laravel\NucleiInverterServiceProvider) is
- * auto-discovered, binds Funnypot\Inverter into the container from config/funnypot.php,
+ * The Laravel service provider (Funnypot\Laravel\FunnypotServiceProvider) is
+ * auto-discovered, binds Funnypot\Engine into the container from config/funnypot.php,
  * and registers `php artisan funnypot:update`.
  *
  *   php artisan vendor:publish --tag=funnypot-config
@@ -50,7 +50,7 @@ return [
 // ---------------------------------------------------------------------------
 
 use Funnypot\Http\ResponseEmitter;
-use Funnypot\Inverter;
+use Funnypot\Engine;
 use Funnypot\RequestContext;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -59,7 +59,7 @@ use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 public function render($request, \Throwable $e)
 {
     if ($e instanceof NotFoundHttpException) {
-        $inverter = app(Inverter::class);
+        $inverter = app(Engine::class);
         $context = RequestContext::fromGlobals();
 
         // Signal even when you don't serve — score every scanner probe.
@@ -85,7 +85,7 @@ public function render($request, \Throwable $e)
 
 // ---------------------------------------------------------------------------
 // 3. ALTERNATIVE — global middleware (app/Http/Kernel.php $middleware[])
-//      \Funnypot\Laravel\InverterMiddleware::class
+//      \Funnypot\Laravel\HoneypotMiddleware::class
 //    It runs detect(), attaches the Detection as a request attribute, and serves a
 //    synthesized response in place of the route when respond() returns one.
 // ---------------------------------------------------------------------------

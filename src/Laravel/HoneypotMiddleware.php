@@ -5,20 +5,20 @@ declare(strict_types=1);
 namespace Funnypot\Laravel;
 
 use Closure;
-use Funnypot\Inverter;
+use Funnypot\Engine;
 
 /**
  * Laravel-style middleware (handle($request, $next)), mirroring the flow of
- * Http\InverterMiddleware with Illuminate's Request/Response instead of PSR-7:
+ * Http\HoneypotMiddleware with Illuminate's Request/Response instead of PSR-7:
  * detect (attached as a request attribute for the app's own logging) -> respond
  * -> serve the fake or pass through to $next. Core untouched; see
  * LaravelRequestMapper for why Illuminate\* is referenced by FQCN only.
  */
-final class InverterMiddleware
+final class HoneypotMiddleware
 {
     public const ATTRIBUTE_DETECTION = 'funnypot.detection';
 
-    public function __construct(private Inverter $inverter)
+    public function __construct(private Engine $inverter)
     {
     }
 

@@ -15,23 +15,23 @@ use Funnypot\Template\TemplateAttackEmulator;
 
 /**
  * Core engine. Framework-agnostic and side-effect-free (all logging/scoring/banning
- * happen in the host app's InverterObserver).
+ * happen in the host app's Observer).
  *
  * detect() is always safe to call — it routes an incoming request to the template(s)
  * it probes for and returns a signal. respond() honours Config: it only serves a fake
  * when the app has opted into respond mode and every safety gate passes.
  */
-final class NucleiInverter implements Inverter
+final class Honeypot implements Engine
 {
     private Config $config;
-    private InverterObserver $observer;
+    private Observer $observer;
     private ResponseSynthesizer $synthesizer;
     private ?TemplateAttackEmulator $attackEmulator;
 
     public function __construct(
         private CompiledStore $store,
         ?Config $config = null,
-        ?InverterObserver $observer = null
+        ?Observer $observer = null
     ) {
         $this->config = $config ?? new Config();
         $this->observer = $observer ?? new NullObserver();
@@ -43,7 +43,7 @@ final class NucleiInverter implements Inverter
      * Build against the artifact bundled with the package. Pass a Config to enable
      * respond mode; the default is inert (detect only).
      */
-    public static function default(?Config $config = null, ?InverterObserver $observer = null): self
+    public static function default(?Config $config = null, ?Observer $observer = null): self
     {
         return new self(PhpArrayStore::fromPackage(), $config, $observer);
     }

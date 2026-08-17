@@ -6,7 +6,7 @@ namespace Funnypot\Tests;
 
 use Funnypot\Config;
 use Funnypot\Detection;
-use Funnypot\NucleiInverter;
+use Funnypot\Honeypot;
 use Funnypot\RequestContext;
 use Funnypot\Store\PhpArrayStore;
 use PHPUnit\Framework\TestCase;
@@ -18,15 +18,15 @@ final class DetectTest extends TestCase
         return new PhpArrayStore(require __DIR__ . '/../resources/compiled/nuclei-index.php');
     }
 
-    private function inverter(): NucleiInverter
+    private function inverter(): Honeypot
     {
         // Default config: inert (detect only).
-        return new NucleiInverter($this->store());
+        return new Honeypot($this->store());
     }
 
-    private function respondInverter(): NucleiInverter
+    private function respondInverter(): Honeypot
     {
-        return new NucleiInverter($this->store(), new Config(
+        return new Honeypot($this->store(), new Config(
             mode: 'respond',
             gate: static fn (RequestContext $r): bool => true
         ));
@@ -143,7 +143,7 @@ final class DetectTest extends TestCase
 
     public function test_respond_requires_an_open_gate(): void
     {
-        $inv = new NucleiInverter($this->store(), new Config(mode: 'respond'));
+        $inv = new Honeypot($this->store(), new Config(mode: 'respond'));
 
         // Gate defaults closed (no predicate) -> no fake served.
         self::assertNull($inv->respond(new RequestContext('GET', '/.git/config')));
@@ -151,7 +151,7 @@ final class DetectTest extends TestCase
 
     public function test_trusted_bypass_suppresses_response(): void
     {
-        $inv = new NucleiInverter($this->store(), new Config(
+        $inv = new Honeypot($this->store(), new Config(
             mode: 'respond',
             gate: static fn (RequestContext $r): bool => true,
             trustedBypass: static fn (RequestContext $r): bool => true

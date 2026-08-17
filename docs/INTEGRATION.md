@@ -23,7 +23,7 @@ In the app's root `composer.json` (not touched by this change):
 
 `composer require bobbymaher/funnypot` then symlinks the package into
 `vendor/bobbymaher/funnypot`. Laravel package auto-discovery picks up
-`Funnypot\Laravel\NucleiInverterServiceProvider` from the
+`Funnypot\Laravel\FunnypotServiceProvider` from the
 package's `composer.json` `extra.laravel.providers` — no manual provider
 registration needed in `config/app.php`.
 
@@ -60,7 +60,7 @@ install inert regardless of `mode`.
 
 ## 3. Drop-in points
 
-Both integration points call `Funnypot\Http\Honeypot::forRequest()`
+Both integration points call `Funnypot\Http\Responder::forRequest()`
 — the tiny framework-agnostic helper built for exactly this "call me from
 wherever you already decide it's a 404 / bad request" shape — and fall back to
 the app's existing methods (`funky404()`, `diewithBadResponse()`) on `null`, so
@@ -92,7 +92,7 @@ $badUser = $honeyPot->monitor404($request);
 if ($badUser) {
     if (env('HONEYPOT_ENABLED', false)) {
         $context = \Funnypot\Laravel\LaravelRequestMapper::map($request);
-        $synthesized = \Funnypot\Http\Honeypot::forRequest(app(\Funnypot\Inverter::class), $context);
+        $synthesized = \Funnypot\Http\Responder::forRequest(app(\Funnypot\Engine::class), $context);
         if ($synthesized !== null) {
             return \Funnypot\Laravel\LaravelResponseMapper::map($synthesized);
         }
@@ -106,7 +106,7 @@ if ($badUser) {
 so this drop-in is safe to land before the app ever flips to `respond` mode —
 it always falls through to `funky404()` until then. `detect()` still fires
 internally either way and its `Detection` can be logged alongside the existing
-`monitor404()` scoring once the app wires an `InverterObserver`.
+`monitor404()` scoring once the app wires an `Observer`.
 
 ### `app/Http/Middleware/RestrictIPAccess.php:53-54`
 
@@ -122,7 +122,7 @@ Proposed change, same pattern:
 ```php
 if (env('HONEYPOT_ENABLED', false)) {
     $context = \Funnypot\Laravel\LaravelRequestMapper::map($request);
-    $synthesized = \Funnypot\Http\Honeypot::forRequest(app(\Funnypot\Inverter::class), $context);
+    $synthesized = \Funnypot\Http\Responder::forRequest(app(\Funnypot\Engine::class), $context);
     if ($synthesized !== null) {
         return \Funnypot\Laravel\LaravelResponseMapper::map($synthesized);
     }
@@ -142,7 +142,7 @@ both on* — before that it is exactly today's `diewithBadResponse()`.
 1. Land the composer path-repo require + provider + published config, with
    `NUCLEI_INVERTER_MODE=detect` and `HONEYPOT_ENABLED` **unset/false**. No
    behavior change; `Detection` data available for logging only.
-2. Wire an `InverterObserver` (e.g. bridging into `SuspiciousUserMonitoring`)
+2. Wire an `Observer` (e.g. bridging into `SuspiciousUserMonitoring`)
    so detect-mode signal augments the existing scoring for a while.
 3. Once detect-mode signal is trusted, flip `NUCLEI_INVERTER_MODE=respond` and
    `HONEYPOT_ENABLED=true` behind a canary (single server / percentage), with

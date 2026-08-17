@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Funnypot\Tests;
 
-use Funnypot\NucleiInverter;
+use Funnypot\Honeypot;
 use Funnypot\RequestContext;
 use Funnypot\Store\PhpArrayStore;
 use PHPUnit\Framework\TestCase;
@@ -27,9 +27,9 @@ final class CompiledIndexSmokeTest extends TestCase
         ini_set('memory_limit', '512M');
     }
 
-    private function inverter(): NucleiInverter
+    private function inverter(): Honeypot
     {
-        return new NucleiInverter(PhpArrayStore::fromFile(self::INDEX));
+        return new Honeypot(PhpArrayStore::fromFile(self::INDEX));
     }
 
     public function test_schema_and_manifest(): void

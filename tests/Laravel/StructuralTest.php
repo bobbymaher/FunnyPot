@@ -10,7 +10,7 @@ use PHPUnit\Framework\TestCase;
  * The Laravel bridge (src/Laravel/*) references Illuminate\* classes that are
  * not installed on the host PHP 8.4 pure-unit lane (see CLAUDE.md — Laravel
  * tests need the framework/docker lane). These classes can't be instantiated or
- * autoloaded here (autoloading NucleiInverterServiceProvider would trigger
+ * autoloaded here (autoloading FunnypotServiceProvider would trigger
  * autoload of \Illuminate\Support\ServiceProvider and fatal). So this suite only
  * asserts static, framework-free facts: the files exist, parse cleanly (bin/
  * verifies php -l separately), and expose the expected shape via reflection on
@@ -23,10 +23,10 @@ final class StructuralTest extends TestCase
     public function test_expected_bridge_files_exist(): void
     {
         $expected = [
-            'NucleiInverterServiceProvider.php',
+            'FunnypotServiceProvider.php',
             'LaravelRequestMapper.php',
             'LaravelResponseMapper.php',
-            'InverterMiddleware.php',
+            'HoneypotMiddleware.php',
             'Console/UpdateTemplatesCommand.php',
         ];
 
@@ -86,7 +86,7 @@ final class StructuralTest extends TestCase
 
     public function test_service_provider_declares_register_boot_and_provides(): void
     {
-        $contents = (string) file_get_contents(self::LARAVEL_SRC . '/NucleiInverterServiceProvider.php');
+        $contents = (string) file_get_contents(self::LARAVEL_SRC . '/FunnypotServiceProvider.php');
 
         foreach (['function register(): void', 'function boot(): void', 'function provides(): array'] as $needle) {
             self::assertStringContainsString($needle, $contents);
@@ -108,7 +108,7 @@ final class StructuralTest extends TestCase
         $composer = json_decode((string) file_get_contents(__DIR__ . '/../../composer.json'), true);
 
         self::assertSame(
-            ['Funnypot\\Laravel\\NucleiInverterServiceProvider'],
+            ['Funnypot\\Laravel\\FunnypotServiceProvider'],
             $composer['extra']['laravel']['providers'] ?? null
         );
 

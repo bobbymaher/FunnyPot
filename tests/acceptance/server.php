@@ -15,7 +15,7 @@ declare(strict_types=1);
 
 use Funnypot\Config;
 use Funnypot\Http\ResponseEmitter;
-use Funnypot\NucleiInverter;
+use Funnypot\Honeypot;
 use Funnypot\RequestContext;
 use Funnypot\Store\PhpArrayStore;
 
@@ -36,7 +36,7 @@ $config = new Config(
     personaSeed: static fn (RequestContext $r): string => 'acceptance-fixed-persona',
     responseStyle: $style
 );
-$inverter = new NucleiInverter($store, $config);
+$inverter = new Honeypot($store, $config);
 
 $response = $inverter->respond(RequestContext::fromGlobals());
 

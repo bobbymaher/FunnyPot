@@ -7,7 +7,7 @@ namespace Funnypot;
 /**
  * Default no-op observer.
  */
-final class NullObserver implements InverterObserver
+final class NullObserver implements Observer
 {
     public function onDetection(RequestContext $r, Detection $detection): void
     {

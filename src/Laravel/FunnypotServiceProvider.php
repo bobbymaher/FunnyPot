@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace Funnypot\Laravel;
 
 use Funnypot\Config;
-use Funnypot\Inverter;
-use Funnypot\InverterObserver;
-use Funnypot\NucleiInverter;
+use Funnypot\Engine;
+use Funnypot\Observer;
+use Funnypot\Honeypot;
 use Funnypot\NullObserver;
 
 /**
@@ -18,22 +18,22 @@ use Funnypot\NullObserver;
  * stay composer "suggest", never "require". A non-Laravel consumer of the
  * package never loads this file (nothing autoloads it) and needs neither.
  */
-final class NucleiInverterServiceProvider extends \Illuminate\Support\ServiceProvider
+final class FunnypotServiceProvider extends \Illuminate\Support\ServiceProvider
 {
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__ . '/../../config/funnypot.php', 'funnypot');
 
-        $this->app->singleton(Inverter::class, function ($app): Inverter {
+        $this->app->singleton(Engine::class, function ($app): Engine {
             $config = (array) $app['config']->get('funnypot', []);
 
-            return NucleiInverter::default(
+            return Honeypot::default(
                 self::buildConfig($config, $app),
-                $app->bound(InverterObserver::class) ? $app->make(InverterObserver::class) : new NullObserver()
+                $app->bound(Observer::class) ? $app->make(Observer::class) : new NullObserver()
             );
         });
 
-        $this->app->alias(Inverter::class, NucleiInverter::class);
+        $this->app->alias(Engine::class, Honeypot::class);
     }
 
     public function boot(): void
@@ -54,7 +54,7 @@ final class NucleiInverterServiceProvider extends \Illuminate\Support\ServicePro
     /** @return array<int,string> */
     public function provides(): array
     {
-        return [Inverter::class, NucleiInverter::class];
+        return [Engine::class, Honeypot::class];
     }
 
     private function publishedConfigPath(): string

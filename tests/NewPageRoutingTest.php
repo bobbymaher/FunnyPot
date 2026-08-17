@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Funnypot\Tests;
 
 use Funnypot\Config;
-use Funnypot\NucleiInverter;
+use Funnypot\Honeypot;
 use Funnypot\RequestContext;
 use Funnypot\Store\PhpArrayStore;
 use PHPUnit\Framework\TestCase;
@@ -18,11 +18,11 @@ use PHPUnit\Framework\TestCase;
  */
 final class NewPageRoutingTest extends TestCase
 {
-    private function inverter(): NucleiInverter
+    private function inverter(): Honeypot
     {
         $store = new PhpArrayStore(require __DIR__ . '/../resources/compiled/nuclei-index.full.php');
 
-        return new NucleiInverter($store, new Config(
+        return new Honeypot($store, new Config(
             mode: 'respond',
             gate: static fn (RequestContext $r): bool => true,
             responseStyle: 'realistic',

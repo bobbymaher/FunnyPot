@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Funnypot\Tests;
 
 use Funnypot\Config;
-use Funnypot\NucleiInverter;
+use Funnypot\Honeypot;
 use Funnypot\RequestContext;
 use Funnypot\Response\BundleValidator;
 use Funnypot\Response\Style;
@@ -20,9 +20,9 @@ final class EmulatorTest extends TestCase
         return new PhpArrayStore(require __DIR__ . '/../resources/compiled/nuclei-index.php');
     }
 
-    private function inverter(string $style): NucleiInverter
+    private function inverter(string $style): Honeypot
     {
-        return new NucleiInverter($this->store(), new Config(
+        return new Honeypot($this->store(), new Config(
             mode: 'respond',
             gate: static fn (RequestContext $r): bool => true,
             responseStyle: $style,

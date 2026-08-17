@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Funnypot\Tests;
 
 use Funnypot\Config;
-use Funnypot\NucleiInverter;
+use Funnypot\Honeypot;
 use Funnypot\RequestContext;
 use Funnypot\Store\PhpArrayStore;
 use PHPUnit\Framework\TestCase;
@@ -49,7 +49,7 @@ final class GatingTest extends TestCase
 
     private function respond(Config $c, string $path, string $query = ''): ?object
     {
-        return (new NucleiInverter($this->store(), $c))
+        return (new Honeypot($this->store(), $c))
             ->respond(new RequestContext('GET', $path, $query));
     }
 
@@ -154,7 +154,7 @@ final class GatingTest extends TestCase
 
     public function test_observer_receives_outcomes(): void
     {
-        $observer = new class implements \Funnypot\InverterObserver {
+        $observer = new class implements \Funnypot\Observer {
             /** @var string[] */
             public array $detections = [];
             /** @var string[] */
@@ -177,10 +177,10 @@ final class GatingTest extends TestCase
         };
 
         // Served path.
-        $inv = new NucleiInverter($this->store(), $this->openConfig(), $observer);
+        $inv = new Honeypot($this->store(), $this->openConfig(), $observer);
         $inv->respond(new RequestContext('GET', '/multi'));
         // Gate-closed path.
-        $inv2 = new NucleiInverter($this->store(), new Config(mode: 'respond'), $observer);
+        $inv2 = new Honeypot($this->store(), new Config(mode: 'respond'), $observer);
         $inv2->respond(new RequestContext('GET', '/multi'));
 
         self::assertSame(['/multi', '/multi'], $observer->detections);

@@ -1,4 +1,4 @@
-# Nuclei-Inverter — Architecture Spec
+# funnypot — Architecture Spec
 
 > A reusable PHP package that is the **inverse of a nuclei scanner**. Given an incoming
 > (suspicious) HTTP request, it finds which nuclei template(s) that request probes for and
@@ -152,7 +152,7 @@ runtime.**
 ## 4. Public API + adapters + updateability
 
 ```php
-interface Inverter {
+interface Engine {
     public function detect(RequestContext $r): Detection;            // never null; Detection::none() on miss
     public function respond(RequestContext $r): ?SynthesizedResponse; // null => app serves its own 404
 }
@@ -182,12 +182,12 @@ DTOs (all promoted-ctor, PHP-8.0-safe):
 | `seedSalt` | `''` (Laravel: `app.key`) | per-deploy persona salt |
 | `exclude` | `[]` | template-id/tag deny list |
 
-**App-policy seam:** `InverterObserver { onDetection(...); shouldRespond(...):bool }` +
+**App-policy seam:** `Observer { onDetection(...); shouldRespond(...):bool }` +
 `NullObserver`. Logging/scoring/banning live in the app's observer, never in core.
 
-**Adapters:** PSR-15 `Http\InverterMiddleware`; `Http\Honeypot::forRequest()` pure helper +
+**Adapters:** PSR-15 `Http\HoneypotMiddleware`; `Http\Honeypot::forRequest()` pure helper +
 `Http\ResponseEmitter::emit()` (the one opt-in side-effect); Laravel bridge (`Laravel\`,
-auto-discovered) binding `Inverter`, publishing config, registering the update command. Only
+auto-discovered) binding `Engine`, publishing config, registering the update command. Only
 `Laravel*Mapper` touch `Illuminate\*`. iCabbiTools drop-ins: `Handler.php:236-242` and
 `RestrictIPAccess.php:53-54` become `respond()` calls with existing `funky404()` /
 `diewithBadResponse()` as the null fallback.
@@ -268,7 +268,7 @@ templates that are pure `status + word(part:body)` — no regex, no negatives, n
 no collisions (e.g. `.env`/`wpconfig` word exposures, `phpinfo`, `server-status`, `.git/config`).
 Detect mode is independently shippable and is the headline value ("this request is a scanner
 probe") for any app that only wants gating.
-- *Files:* `RequestContext`, `Detection`, `TemplateMatch`; `Inverter`/`NucleiInverter::detect`;
+- *Files:* `RequestContext`, `Detection`, `TemplateMatch`; `Engine`/`Honeypot::detect`;
   `Support\PathNormalizer` (byte-identity on raw request-target — only fold trailing slash + strip
   query; do NOT decode/lowercase percent-escapes), `Store\PhpArrayStore` + a hand-written
   index; pure PHPUnit.
@@ -286,7 +286,7 @@ Proof: per-bundle coverage asserted; two seeds → two self-consistent personas;
 carries two product identities or two `Server:` families.
 
 **Phase 4 — respond synthesis + safety gating + modes + observer.** `ResponseSynthesizer`,
-`Config`, all knobs, `InverterObserver`. Proof: default `detect` emits zero bytes; `gate=>false`
+`Config`, all knobs, `Observer`. Proof: default `detect` emits zero bytes; `gate=>false`
 / `trustedBypass` / `sig=1`-without-signature return null; `critical` refused; body ≤ cap;
 headers CRLF-safe.
 

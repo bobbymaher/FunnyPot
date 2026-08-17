@@ -9,7 +9,7 @@ namespace Funnypot;
  * caller: detect() is always safe to call; respond() honours gating and returns
  * null when the app should serve its own 404.
  */
-interface Inverter
+interface Engine
 {
     /**
      * Signal whether an incoming request matches a known scanner probe. Never null;
