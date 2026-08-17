@@ -4,7 +4,8 @@
 #   docker run --rm -p 80:80 -p 443:443 -p 8080:8080 -p 8443:8443 funnypot
 FROM php:8.3-fpm-alpine
 
-RUN apk add --no-cache nginx openssl
+RUN apk add --no-cache nginx openssl \
+    && docker-php-ext-install pdo_sqlite    # dashboard's optional SQLite store (real stats + geoip)
 
 # opcache on (the index is compiled once, not re-parsed per request) + a worker pool
 # sized for concurrency + the shared routing snippet.

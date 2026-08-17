@@ -18,6 +18,8 @@
 declare(strict_types=1);
 
 require __DIR__ . '/autoload.php';
+require __DIR__ . '/lib/store.php';
+require __DIR__ . '/lib/geo.php';
 
 use Funnypot\Config;
 use Funnypot\Honeypot;
@@ -28,6 +30,11 @@ use Funnypot\RequestContext;
 
 $logFile = getenv('FUNNYPOT_LOG') ?: __DIR__ . '/storage/hits.log';
 @mkdir(dirname($logFile), 0777, true);
+
+// Hit store: JSON-lines log is canonical; a SQLite mirror (when pdo_sqlite is present and
+// FUNNYPOT_DB is not 'off') powers real all-time stats, geoip, and O(1) delta/pagination.
+$store = new Store($logFile, getenv('FUNNYPOT_DB') ?: __DIR__ . '/storage/funnypot.sqlite');
+$geo = new Geo(getenv('FUNNYPOT_GEO_DB') ?: __DIR__ . '/storage/dbip-country.csv.gz');
 
 // Coherent chrome: one consistent X-Powered-By on every response (nginx owns Server), so
 // header recon can't catch a version mismatch between the fake bodies and the server banner.
@@ -72,7 +79,7 @@ if ($context->path === '/favicon.ico') {
 // Password-gated admin actions (retention prune / clear) — POST only; the public view stays
 // open. Disabled unless FUNNYPOT_ADMIN_PASSWORD is set.
 if ($context->method === 'POST' && $context->path === '/' && isset($_GET['admin'])) {
-    demo_admin($logFile, (string) $_GET['admin']);
+    demo_admin($store, $geo, (string) $_GET['admin']);
 
     return true;
 }
@@ -80,9 +87,9 @@ if ($context->method === 'POST' && $context->path === '/' && isset($_GET['admin'
 // Homepage / dashboard (and its JSON feed for live AJAX updates).
 if ($context->method === 'GET' && ($context->path === '/' || $context->path === '/index.php')) {
     if (isset($_GET['feed'])) {
-        demo_feed($logFile);
+        demo_feed($store);
     } else {
-        demo_render_shell($logFile);
+        demo_render_shell();
     }
 
     return true;
@@ -116,7 +123,7 @@ $response = $funnypot->respond($context);
 // otherwise fall back to the detect() signal.
 $logged = $response !== null ? $response->satisfies : $detection;
 
-demo_log($logFile, [
+$store->append([
     'ts' => gmdate('c'),
     'ip' => $clientIp,
     'method' => $context->method,
@@ -133,6 +140,8 @@ demo_log($logFile, [
     // Threat-intel enrichment: OOB probes we can't fake but should flag.
     'log4shell' => Log4ShellProbe::present($context) ?: null,
     'honeytoken' => $tokenVerdict !== 'off' ? $tokenVerdict : null,
+    // GeoIP enrichment at write time (country + lat/lon for the attacker map).
+    'geo' => $geo->lookup($clientIp),
 ]);
 
 if ($response !== null) {
@@ -145,7 +154,7 @@ if ($response !== null) {
 // hand back a nested decoy archive. Peeling it — layer after layer of archives down to
 // fabricated secrets — wastes the attacker's time. Bounded (a few KB, extracts to a few KB):
 // a time sink, never a decompression bomb.
-if (demo_serve_decoy_archive($context, $logFile, $clientIp)) {
+if (demo_serve_decoy_archive($context, $store, $clientIp)) {
     return true;
 }
 
@@ -166,7 +175,7 @@ return true;
  *
  * Off-switch: FUNNYPOT_DECOY_ARCHIVE=0. GET only.
  */
-function demo_serve_decoy_archive(RequestContext $r, string $logFile, string $clientIp): bool
+function demo_serve_decoy_archive(RequestContext $r, Store $store, string $clientIp): bool
 {
     if ($r->method !== 'GET' || getenv('FUNNYPOT_DECOY_ARCHIVE') === '0') {
         return false;
@@ -206,7 +215,7 @@ function demo_serve_decoy_archive(RequestContext $r, string $logFile, string $cl
     }
     $name = preg_replace('/[^\w.\-]/', '_', $name);
 
-    demo_log($logFile, [
+    $store->append([
         'ts' => gmdate('c'),
         'ip' => $clientIp,
         'method' => 'GET',
@@ -264,161 +273,34 @@ function demo_client_ip(): string
     return $_SERVER['REMOTE_ADDR'] ?? 'unknown';
 }
 
-/** @param array<string,mixed> $entry */
-function demo_log(string $logFile, array $entry): void
-{
-    $line = json_encode($entry, JSON_UNESCAPED_SLASHES) . "\n";
-    @file_put_contents($logFile, $line, FILE_APPEND | LOCK_EX);
-    @file_put_contents('php://stderr', $line);
-}
-
-/** @return array<int,array<string,mixed>> newest first */
-function demo_recent(string $logFile, int $limit = 200): array
-{
-    if (!is_file($logFile)) {
-        return [];
-    }
-    $lines = @file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
-    $lines = array_slice($lines, -$limit);
-    $rows = [];
-    foreach (array_reverse($lines) as $l) {
-        $row = json_decode($l, true);
-        if (is_array($row)) {
-            $rows[] = $row;
-        }
-    }
-
-    return $rows;
-}
-
 /**
- * Live JSON feed. DELTA mode: return only the rows appended since the client's byte-offset
- * cursor, so a poll ships just the new rows — not the whole tail every time. `after` empty or
- * a stale cursor (after log rotation/prune) returns a fresh snapshot with reset=true.
- *
- * Modes via $_GET:
- *   feed=1&after=<byteOffset>  live delta (default)
- *   feed=older&skip=<n>        page back through history (newest-first, 100 at a time)
+ * Live JSON feed backed by the Store. Modes via $_GET:
+ *   feed=1&after=<cursor>  delta — only rows since the cursor (opaque: row id or byte offset)
+ *   feed=older&skip=<n>    page back through history, newest-first, 100 at a time
+ * The Store decides DB vs file semantics; the client treats the cursor as opaque.
  */
-function demo_feed(string $logFile): void
+function demo_feed(Store $store): void
 {
     header('Content-Type: application/json');
     header('Cache-Control: no-store');
 
     if (($_GET['feed'] ?? '') === 'older') {
-        $skip = max(0, (int) ($_GET['skip'] ?? 0));
-        $rows = demo_recent($logFile, $skip + 100);
-        $page = array_slice($rows, $skip, 100);
-        echo json_encode([
-            'rows' => array_map('demo_row', $page),
-            'more' => count($rows) > $skip + 100,
-        ], JSON_UNESCAPED_SLASHES);
+        echo json_encode($store->older(max(0, (int) ($_GET['skip'] ?? 0))), JSON_UNESCAPED_SLASHES);
 
         return;
     }
 
-    $size = is_file($logFile) ? (int) filesize($logFile) : 0;
-    $after = (int) ($_GET['after'] ?? 0);
-    $reset = ($after <= 0 || $after > $size);
-
-    // reset -> newest 100 as a snapshot; otherwise just what was appended past the cursor.
-    $rows = $reset
-        ? array_reverse(demo_recent($logFile, 100))
-        : demo_read_from($logFile, $after);
-
-    echo json_encode([
-        'cursor' => $size,
-        'reset' => $reset,
-        'rows' => array_map('demo_row', $rows),
-        'stats' => demo_stats($logFile),
-    ], JSON_UNESCAPED_SLASHES);
+    $out = $store->delta((int) ($_GET['after'] ?? 0));
+    $out['stats'] = $store->stats();
+    $out['widgets'] = $store->widgets();
+    echo json_encode($out, JSON_UNESCAPED_SLASHES);
 }
 
 /**
- * The compact row shape the dashboard renders.
- *
- * @param array<string,mixed> $r
- * @return array<string,mixed>
+ * Password-gated admin actions. The VIEW stays public; only mutating actions (retention
+ * prune, clear, DB backfill) require FUNNYPOT_ADMIN_PASSWORD. Disabled if that env is unset.
  */
-function demo_row(array $r): array
-{
-    return [
-        'ts' => (string) ($r['ts'] ?? ''),
-        'ip' => (string) ($r['ip'] ?? ''),
-        'method' => (string) ($r['method'] ?? ''),
-        'path' => (string) ($r['path'] ?? ''),
-        'matched' => !empty($r['matched']),
-        'severity' => (string) ($r['severity'] ?? ''),
-        'served' => !empty($r['served']),
-        'templates' => array_slice((array) ($r['templates'] ?? []), 0, 6),
-        'body' => (string) ($r['body'] ?? ''),
-    ];
-}
-
-/**
- * Rows appended to the log after byte offset $from, oldest-first. The cursor is always the
- * previous file size, i.e. a newline boundary, so fgets() reads whole lines.
- *
- * @return array<int,array<string,mixed>>
- */
-function demo_read_from(string $logFile, int $from): array
-{
-    $rows = [];
-    $fh = @fopen($logFile, 'rb');
-    if ($fh === false) {
-        return $rows;
-    }
-    if (@fseek($fh, $from) === 0) {
-        while (($line = fgets($fh)) !== false) {
-            $row = json_decode(trim($line), true);
-            if (is_array($row)) {
-                $rows[] = $row;
-            }
-        }
-    }
-    fclose($fh);
-
-    return $rows;
-}
-
-/**
- * Stats over a recent tail window (labelled honestly on the UI). The optional SQLite store
- * gives true all-time aggregates; the file-only mode reports the window.
- *
- * @return array<string,int>
- */
-function demo_stats(string $logFile): array
-{
-    $rows = demo_recent($logFile, 5000);
-    $detections = $served = $harvested = 0;
-    $ips = [];
-    foreach ($rows as $r) {
-        if (!empty($r['matched'])) {
-            $detections++;
-        }
-        if (!empty($r['served'])) {
-            $served++;
-        }
-        if (!empty($r['body'])) {
-            $harvested++;
-        }
-        $ips[(string) ($r['ip'] ?? '')] = true;
-    }
-
-    return [
-        'total' => count($rows),
-        'detections' => $detections,
-        'served' => $served,
-        'ips' => count($ips),
-        'harvested' => $harvested,
-    ];
-}
-
-/**
- * Password-gated admin actions. The dashboard VIEW stays public; only mutating actions
- * (retention prune, clear) require FUNNYPOT_ADMIN_PASSWORD. Disabled if that env is unset.
- */
-function demo_admin(string $logFile, string $action): void
+function demo_admin(Store $store, Geo $geo, string $action): void
 {
     header('Content-Type: application/json');
     header('Cache-Control: no-store');
@@ -433,15 +315,25 @@ function demo_admin(string $logFile, string $action): void
     }
 
     if ($action === 'prune') {
-        $keep = max(0, (int) ($_POST['keep'] ?? 1000));
-        demo_prune($logFile, $keep);
-        echo json_encode(['ok' => true, 'kept' => $keep]);
+        $store->prune(max(0, (int) ($_POST['keep'] ?? 1000)));
+        echo json_encode(['ok' => true]);
 
         return;
     }
     if ($action === 'clear') {
-        @file_put_contents($logFile, '', LOCK_EX);
+        $store->clear();
         echo json_encode(['ok' => true, 'cleared' => true]);
+
+        return;
+    }
+    if ($action === 'import') {
+        echo json_encode(['ok' => true, 'imported' => $store->import()]);
+
+        return;
+    }
+    if ($action === 'geoip') {
+        // Build the IP→country range table from the fetched DB-IP CSV.
+        echo json_encode(['ok' => true, 'ranges' => $geo->import()]);
 
         return;
     }
@@ -450,29 +342,34 @@ function demo_admin(string $logFile, string $action): void
     echo json_encode(['error' => 'unknown action']);
 }
 
-/** Retention: rewrite the log keeping only the newest $keep lines. */
-function demo_prune(string $logFile, int $keep): void
-{
-    if (!is_file($logFile)) {
-        return;
-    }
-    $lines = @file($logFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) ?: [];
-    $lines = array_slice($lines, -$keep);
-    @file_put_contents($logFile, $lines === [] ? '' : implode("\n", $lines) . "\n", LOCK_EX);
-}
-
 /**
- * The dashboard shell: static HTML + JS that polls demo_feed() and updates in place —
+ * The dashboard shell: static HTML + JS that polls the feed and updates in place —
  * no full-page refresh. New rows flash; a live dot shows the connection.
  */
-function demo_render_shell(string $logFile): void
+function demo_render_shell(): void
 {
     header('Content-Type: text/html; charset=utf-8');
 
     $css = <<<CSS
       :root{--bg:#12100c;--panel:#1c1913;--ink:#f3e9d2;--muted:#a8987a;--amber:#f0b400;--red:#ff6b5e;--line:#2e2a20}
       *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}
-      .wrap{max-width:1000px;margin:0 auto;padding:28px 18px}
+      .wrap{max-width:1180px;margin:0 auto;padding:28px 18px}
+      .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px;margin:16px 0}
+      .card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+      .card h3{margin:0 0 8px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:600}
+      .wl{list-style:none;margin:0;padding:0}
+      .wl li{display:flex;justify-content:space-between;gap:8px;padding:3px 0;border-bottom:1px solid var(--line);font-size:13px}
+      .wl li:last-child{border:0}.wl .n{color:var(--amber);font-variant-numeric:tabular-nums}
+      .wl li.click{cursor:pointer}.wl li.click:hover{color:var(--amber)}
+      .bar{position:relative;background:var(--line);border-radius:4px;height:17px;overflow:hidden;margin:3px 0}
+      .bar>i{position:absolute;left:0;top:0;bottom:0;background:rgba(240,180,0,.30)}
+      .bar>label{position:relative;display:flex;justify-content:space-between;padding:0 7px;font-size:11px;line-height:17px}
+      .hist{display:flex;align-items:flex-end;gap:2px;height:56px;margin-top:4px}
+      .hist>div{flex:1;background:rgba(240,180,0,.4);min-height:2px;border-radius:2px 2px 0 0}
+      #map{height:300px;border-radius:10px;border:1px solid var(--line);margin:16px 0;background:#0d0b08}
+      .leaflet-container{background:#0d0b08!important}
+      .filter{background:var(--panel);border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:6px 10px;font:inherit;font-size:13px}
+      tr.hide{display:none}
       .head{display:flex;align-items:center;gap:14px;margin:0 0 4px}
       h1{font-size:30px;margin:0}.honey{color:var(--amber)}
       .live{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.08em;display:inline-flex;align-items:center;gap:6px}
@@ -508,31 +405,56 @@ function demo_render_shell(string $logFile): void
     $js = <<<'JS'
       const esc=s=>String(s==null?'':s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
       const $=id=>document.getElementById(id);
-      let cursor=0, older=0, started=false;
+      let cursor=0, older=0, started=false, filter='';
       const seen=new Set();
       const key=r=>[r.ts,r.ip,r.method,r.path,r.severity||''].join('|');
+      let map=null, markers=null;
+      function initMap(){
+        if(!window.L||map)return;
+        map=L.map('map',{worldCopyJump:true}).setView([25,10],2);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{maxZoom:6,subdomains:'abcd',attribution:'&copy; OpenStreetMap &copy; CARTO'}).addTo(map);
+        markers=L.layerGroup().addTo(map);
+      }
+      function plot(r){
+        if(!markers||r.lat==null||r.lon==null)return;
+        const m=L.circleMarker([r.lat,r.lon],{radius:4,color:'#f0b400',weight:1,fillColor:'#f0b400',fillOpacity:.7}).addTo(markers);
+        const layers=markers.getLayers();if(layers.length>300)markers.removeLayer(layers[0]);
+        setTimeout(()=>{try{m.setStyle({fillOpacity:.2,opacity:.3});}catch(e){}},4000);
+      }
+      function applyFilter(){document.querySelectorAll('#rows tr').forEach(tr=>tr.classList.toggle('hide', filter!=='' && !(tr.dataset.ip||'').includes(filter)));}
       function rowEl(r){
-        const tr=document.createElement('tr');
+        const tr=document.createElement('tr');tr.dataset.ip=r.ip||'';
         const badge=r.matched?`<span class="badge scan">SCAN ${esc((r.severity||'').toUpperCase())}</span>`:'<span class="badge miss">404</span>';
         const ids=(r.templates&&r.templates.length)?`<div class="ids">${esc(r.templates.join(', '))}</div>`:'';
         const payload=r.body?`<div class="payload"><b>payload:</b> ${esc(r.body)}</div>`:'';
         const served=r.served?'<span class="served">served</span>':'&mdash;';
+        const cc=r.cc?` <span class="ids">${esc(r.cc)}</span>`:'';
         const t=(r.ts||'').substr(11,8);
-        tr.innerHTML=`<td>${t}</td><td>${esc(r.ip)}</td><td class="path"><b>${esc(r.method)}</b> ${esc(r.path)}${ids}${payload}</td><td>${badge}</td><td>${served}</td>`;
+        tr.innerHTML=`<td>${t}</td><td>${esc(r.ip)}${cc}</td><td class="path"><b>${esc(r.method)}</b> ${esc(r.path)}${ids}${payload}</td><td>${badge}</td><td>${served}</td>`;
         return tr;
       }
       const empty=()=>{$('rows').innerHTML='<tr><td colspan=5 class=empty>No hits yet &mdash; point a scanner at this host.</td></tr>';};
+      function renderWidgets(w){
+        if(!w)return;
+        $('w_talkers').innerHTML=(w.talkers||[]).map(t=>`<li class="click" data-ip="${esc(t.ip)}"><span>${esc(t.ip)}${t.cc?' <span class=ids>'+esc(t.cc)+'</span>':''}</span><span class="n">${t.n}</span></li>`).join('')||'<li>&mdash;</li>';
+        const cmax=Math.max(1,...(w.countries||[]).map(c=>c.n));
+        $('w_countries').innerHTML=(w.countries||[]).map(c=>`<div class="bar"><i style="width:${Math.round(c.n/cmax*100)}%"></i><label><span>${esc(c.cc)}</span><span>${c.n}</span></label></div>`).join('')||'&mdash;';
+        $('w_templates').innerHTML=(w.templates||[]).map(t=>`<li><span>${esc(t.t)}</span><span class="n">${t.n}</span></li>`).join('')||'<li>&mdash;</li>';
+        const hmax=Math.max(1,...(w.histogram||[]).map(h=>h.n));
+        $('w_hist').innerHTML=(w.histogram||[]).map(h=>`<div style="height:${Math.round(h.n/hmax*100)}%" title="${esc(h.h)}: ${h.n}"></div>`).join('');
+        document.querySelectorAll('#w_talkers li.click').forEach(li=>li.onclick=()=>{filter=li.dataset.ip;$('filter').value=filter;applyFilter();});
+      }
       async function tick(){
         try{
           const d=await (await fetch('/?feed=1&after='+cursor,{cache:'no-store'})).json();
           const tb=$('rows');
-          if(d.reset){tb.innerHTML='';seen.clear();older=0;}
-          // delta rows arrive oldest-first; prepend so the newest lands on top.
-          d.rows.forEach(r=>{const k=key(r);if(seen.has(k))return;seen.add(k);const el=rowEl(r);if(started)el.classList.add('flash');tb.insertBefore(el,tb.firstChild);});
+          if(d.reset){tb.innerHTML='';seen.clear();older=0;if(markers)markers.clearLayers();}
+          d.rows.forEach(r=>{const k=key(r);if(seen.has(k))return;seen.add(k);const el=rowEl(r);if(started)el.classList.add('flash');tb.insertBefore(el,tb.firstChild);plot(r);});
           while(tb.children.length>500)tb.removeChild(tb.lastChild);
           cursor=d.cursor;
           if(d.stats)['total','detections','served','ips','harvested'].forEach(k=>$(k).textContent=d.stats[k]);
-          if(!tb.children.length)empty();
+          renderWidgets(d.widgets);
+          if(!tb.children.length)empty();else applyFilter();
           started=true;$('live').classList.add('on');
         }catch(e){$('live').classList.remove('on');}
       }
@@ -542,7 +464,7 @@ function demo_render_shell(string $logFile): void
           const d=await (await fetch('/?feed=older&skip='+older,{cache:'no-store'})).json();
           const tb=$('rows');
           d.rows.forEach(r=>{const k=key(r);if(seen.has(k))return;seen.add(k);tb.appendChild(rowEl(r));});
-          older+=d.rows.length;
+          older+=d.rows.length;applyFilter();
           b.style.display=d.more?'':'none';
         }finally{b.disabled=false;}
       }
@@ -554,13 +476,15 @@ function demo_render_shell(string $logFile): void
         alert(JSON.stringify(await r.json()));cursor=0;older=0;seen.clear();tick();
       }
       $('older').onclick=loadOlder;
-      $('prune').onclick=()=>{if(confirm('Prune the log to the newest 1000 lines?'))admin('prune','keep=1000');};
+      $('prune').onclick=()=>{if(confirm('Prune to the newest 1000 events?'))admin('prune','keep=1000');};
       $('clear').onclick=()=>{if(confirm('Delete ALL captured data? This cannot be undone.'))admin('clear');};
-      tick();setInterval(tick,3000);
+      $('filter').oninput=e=>{filter=e.target.value.trim();applyFilter();};
+      initMap();tick();setInterval(tick,3000);
     JS;
 
     echo "<!doctype html><html lang=en><head><meta charset=utf-8>";
     echo "<meta name=viewport content='width=device-width,initial-scale=1'>";
+    echo "<link rel=stylesheet href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css' crossorigin>";
     echo "<title>funnypot</title><style>{$css}</style></head><body><div class=wrap>";
     echo "<div class=head><h1>Welcome to <span class=honey>funnypot</span> &#127855;</h1>";
     echo "<span id=live class=live><span class=dot></span> live</span></div>";
@@ -572,12 +496,21 @@ function demo_render_shell(string $logFile): void
     echo "<div class=stat><b id=ips>&mdash;</b><span>unique IPs</span></div>";
     echo "<div class=stat><b id=harvested>&mdash;</b><span>payloads captured</span></div>";
     echo "</div>";
-    echo "<div class=note>stats cover the recent window (last 5,000 events).</div>";
+    echo "<div id=map></div>";
+    echo "<div class=grid>";
+    echo "<div class=card><h3>top talkers</h3><ul class=wl id=w_talkers></ul></div>";
+    echo "<div class=card><h3>source countries</h3><div id=w_countries></div></div>";
+    echo "<div class=card><h3>templates fired</h3><ul class=wl id=w_templates></ul></div>";
+    echo "<div class=card><h3>activity (hourly)</h3><div class=hist id=w_hist></div></div>";
+    echo "</div>";
+    echo "<div class=controls style='margin-bottom:8px'><input id=filter class=filter placeholder='filter by ip&hellip;'>";
+    echo "<span class=note style='margin:0 0 0 auto'>stats: all-time (DB) or recent window (file mode)</span></div>";
     echo "<table><thead><tr><th>time</th><th>ip</th><th>request</th><th>verdict</th><th>fake?</th></tr></thead>";
     echo "<tbody id=rows><tr><td colspan=5 class=empty>connecting&hellip;</td></tr></tbody></table>";
     echo "<div class=controls><button id=older class=btn>load older</button>";
     echo "<span class=admin><button id=prune class=btn title='keep newest 1000 events'>prune</button><button id=clear class=btn>clear</button></span></div>";
-    echo "<footer>funnypot &mdash; a honeypot that turns scanner probes into wasted time.</footer>";
+    echo "<footer>funnypot &mdash; a honeypot that turns scanner probes into wasted time. &middot; map &copy; OpenStreetMap, CARTO</footer>";
+    echo "<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js' crossorigin></script>";
     echo "<script>{$js}</script>";
     echo "</div></body></html>";
 }

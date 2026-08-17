@@ -29,9 +29,17 @@ services:
       - "10443:10443"
     environment:
       FUNNYPOT_STYLE: realistic    # minimal | realistic | taunt
+      # FUNNYPOT_ADMIN_PASSWORD: change-me   # enables the dashboard prune/clear/geoip actions
+      # FUNNYPOT_HONEYTOKEN_KEY: change-me    # enables the tamper-evident bait cookie
+      # FUNNYPOT_DB: "off"                     # disable the SQLite store (file-only stats)
     restart: unless-stopped
-    # For local dev with instant code edits, uncomment to bind-mount the source:
-    # volumes:
+    volumes:
+      # Persist the hit log + SQLite store + geoip data across container recreation.
+      - funnypot-storage:/app/demo/storage
+    # For local dev with instant code edits, also bind-mount the source:
     #   - ../src:/app/src:ro
     #   - ../resources:/app/resources:ro
     #   - ../demo:/app/demo
+
+volumes:
+  funnypot-storage:

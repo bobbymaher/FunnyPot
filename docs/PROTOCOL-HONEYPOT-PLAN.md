@@ -512,3 +512,17 @@ The demo container already runs php-fpm + nginx via `demo/entrypoint.sh`. Add:
 5. **New composer package vs folded into funnypot core.** The listener/codecs/
    shell could live in `src/Protocol/*` in the same package, or split into a
    companion package so HTTP-only consumers don't carry the TCP engine.
+   **Decided: same package** (`src/Protocol/*`), ReactPHP in `suggest` (listener-only).
+
+---
+
+## 10. Future inputs
+
+- **nuclei `network/` templates.** Once we own TCP listeners, invert nuclei's *network*
+  templates the same way the HTTP engine inverts `http/` — they carry per-service
+  banner/response signatures (redis, mysql, ftp, telnet, memcached, mongodb, …) and read
+  matched inbound bytes → expected reply. A large ready-made corpus for the protocol-template
+  compiler; wire it into the same invert pipeline (matcher → witness → canned response).
+- **greenbone/openvas-scanner (GVM).** Mine its NASL service-detection VTs for protocol probes,
+  banners, and default-cred/version fingerprints to seed protocol templates + the shell layer's
+  command outputs. Licensing: GPL — take ideas/signatures, re-author, don't ingest code verbatim.
