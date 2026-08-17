@@ -82,6 +82,25 @@ final class TemplateLoader
             static fn (string $p): bool => $p !== ''
         ));
 
+        // A raw request carries its own method + target in the first request line; lift
+        // them so the rest of the pipeline routes the raw template like a path template.
+        // Only the FIRST raw request is inverted; the count lets Gate A reject multi-raw.
+        $rawRequestCount = 0;
+        $rawList = $req['raw'] ?? null;
+        if (is_array($rawList)) {
+            $rawList = array_values(array_filter($rawList, 'is_string'));
+            $rawRequestCount = count($rawList);
+            if ($rawRequestCount > 0) {
+                $parsed = $this->parseRawRequest($rawList[0]);
+                if ($parsed !== null) {
+                    $method = $parsed['method'];
+                    $paths = [$parsed['path']];
+                } else {
+                    $paths = []; // unparseable request line — Gate A rejects
+                }
+            }
+        }
+
         $matchers = $req['matchers'] ?? [];
         if (!is_array($matchers)) {
             $matchers = [];
@@ -112,8 +131,55 @@ final class TemplateLoader
             $requestCount,
             isset($doc['flow']),
             $eligibility,
-            $rawText
+            $rawText,
+            $rawRequestCount
         );
+    }
+
+    /**
+     * Parse the first line of a raw HTTP request ("METHOD request-target HTTP/x.y") into
+     * a method + a {{BaseURL}}-relative path expression the rest of the compiler reuses.
+     *
+     * A bare "/path" target is rewritten to "{{BaseURL}}/path" so pathTarget/route-key
+     * logic is identical to a normal path template; a "{{BaseURL}}"-prefixed target is
+     * kept as-is; anything else (absolute URL, missing request line) yields null so Gate
+     * A rejects it as non-routable.
+     *
+     * @return array{method:string,path:string}|null
+     */
+    private function parseRawRequest(string $raw): ?array
+    {
+        // The request line is the first line that is neither blank nor a nuclei raw
+        // annotation (@timeout, @Host, @tls-sni, …), which precede the request.
+        $line = null;
+        foreach (preg_split('/\r\n|\r|\n/', $raw) ?: [] as $candidate) {
+            $candidate = trim($candidate);
+            if ($candidate === '' || $candidate[0] === '@') {
+                continue;
+            }
+            $line = $candidate;
+            break;
+        }
+        if ($line === null) {
+            return null;
+        }
+
+        if (!preg_match('~^([A-Za-z]+)\s+(\S+)\s+HTTP/[0-9](?:\.[0-9])?$~', $line, $m)) {
+            return null;
+        }
+
+        $method = strtoupper($m[1]);
+        $target = $m[2];
+
+        if (preg_match('/^\{\{\s*(?:BaseURL|RootURL)\s*\}\}/i', $target)) {
+            $path = $target;
+        } elseif ($target !== '' && $target[0] === '/') {
+            $path = '{{BaseURL}}' . $target;
+        } else {
+            $path = $target; // absolute URL / non-relative — Gate A will reject
+        }
+
+        return ['method' => $method, 'path' => $path];
     }
 
     /**

@@ -50,12 +50,20 @@ final class RequestContext
 
         $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
 
+        // Capture the body for write methods (capped) so the app can log the exploit
+        // payload an attacker POSTs. The core never parses or reflects it.
+        $rawBody = null;
+        if (in_array(strtoupper((string) $method), ['POST', 'PUT', 'PATCH', 'DELETE'], true)) {
+            $raw = @file_get_contents('php://input', false, null, 0, 65536);
+            $rawBody = $raw === false || $raw === '' ? null : $raw;
+        }
+
         return new self(
             (string) $method,
             $path,
             $query,
             $headers,
-            null,
+            $rawBody,
             (string) ($_SERVER['HTTP_HOST'] ?? ''),
             $scheme
         );

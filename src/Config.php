@@ -43,6 +43,8 @@ final class Config
         public string $severityCeiling = 'high',
         public int $maxBodyBytes = 65536,
         public int $latencyMs = 0,
+        public int $latencyJitterMs = 0,
+        public bool $attackEmulation = false,
         public ?Closure $trustedBypass = null,
         public ?Closure $killSwitch = null,
         public ?Closure $probeSignature = null,
@@ -54,6 +56,19 @@ final class Config
     public function respondEnabled(): bool
     {
         return $this->mode === 'respond';
+    }
+
+    /**
+     * Microseconds to pause before serving a fake — a base delay plus RANDOM jitter (not
+     * seeded, so re-scans vary) so responses aren't the instant, uniform sub-millisecond
+     * replies that fingerprint a honeypot. 0 by default. Under php-fpm keep the worker
+     * pool sized for the delay; never large enough to exhaust it.
+     */
+    public function serveDelayMicros(): int
+    {
+        $jitter = $this->latencyJitterMs > 0 ? random_int(0, $this->latencyJitterMs) : 0;
+
+        return max(0, ($this->latencyMs + $jitter) * 1000);
     }
 
     public function killSwitchTripped(): bool

@@ -1,13 +1,37 @@
-# funnypot standalone honeypot.
-#   cd demo && docker compose up --build
-# then open http://localhost:8080  (live dashboard) and point a scanner at it.
+# funnypot standalone honeypot — nginx + php-fpm, HTTP + HTTPS across the common web
+# ports. Baked, portable image (no source mount) — drop on a server and go:
+#   cd demo && docker compose up -d --build
+# then hit it on http://HOST (:80/:8080/…) or https://HOST (:443/:8443, self-signed).
 services:
   funnypot:
     build:
       context: ..                 # repo root — the Dockerfile copies src/ resources/ from there
       dockerfile: demo/Dockerfile
     ports:
+      - "80:80"
+      - "443:443"
+      - "3000:3000"
+      - "4443:4443"
+      - "5000:5000"
+      - "8000:8000"
+      - "8008:8008"
       - "8080:8080"
+      - "8081:8081"
+      - "8088:8088"
+      - "8090:8090"
+      - "8161:8161"
+      - "8443:8443"
+      - "8888:8888"
+      - "8983:8983"
+      - "9000:9000"
+      - "9090:9090"
+      - "9443:9443"
+      - "10443:10443"
     environment:
       FUNNYPOT_STYLE: realistic    # minimal | realistic | taunt
     restart: unless-stopped
+    # For local dev with instant code edits, uncomment to bind-mount the source:
+    # volumes:
+    #   - ../src:/app/src:ro
+    #   - ../resources:/app/resources:ro
+    #   - ../demo:/app/demo

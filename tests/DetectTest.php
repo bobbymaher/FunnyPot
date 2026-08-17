@@ -54,12 +54,22 @@ final class DetectTest extends TestCase
         self::assertSame('', $d->clusterKey);
     }
 
-    public function test_method_mismatch_misses(): void
+    public function test_post_falls_back_to_get_bundle(): void
     {
-        // Index only carries GET /.git/config; a POST must not route to it.
+        // R1: the GET-only index still answers a POST probe for the same path (a third of
+        // scanner probes are POST). It resolves to the GET bundle's templates.
         $d = $this->inverter()->detect(new RequestContext('POST', '/.git/config'));
 
-        self::assertFalse($d->matched);
+        self::assertTrue($d->matched);
+        self::assertSame(['git-config'], $d->templateIds());
+    }
+
+    public function test_non_fallback_method_still_misses(): void
+    {
+        // Only POST/HEAD fall back to GET; OPTIONS/TRACE must not (a real server answers
+        // those differently, so serving a fake would be a tell).
+        self::assertFalse($this->inverter()->detect(new RequestContext('OPTIONS', '/.git/config'))->matched);
+        self::assertFalse($this->inverter()->detect(new RequestContext('TRACE', '/.git/config'))->matched);
     }
 
     public function test_query_string_is_ignored_for_routing(): void
@@ -88,11 +98,13 @@ final class DetectTest extends TestCase
         self::assertSame(['npm-debug-log'], $b->templateIds());
     }
 
-    public function test_trailing_slash_directory_probe(): void
+    public function test_trailing_slash_variant_resolves(): void
     {
-        // /config/ must hit; /config (no slash) must miss — distinct byte keys.
+        // R1: /config/ is the compiled key; a probe for /config (no slash) falls back to it.
         self::assertTrue($this->inverter()->detect(new RequestContext('GET', '/config/'))->matched);
-        self::assertFalse($this->inverter()->detect(new RequestContext('GET', '/config'))->matched);
+        self::assertTrue($this->inverter()->detect(new RequestContext('GET', '/config'))->matched);
+        // A genuinely unknown path still misses.
+        self::assertFalse($this->inverter()->detect(new RequestContext('GET', '/totally-unknown'))->matched);
     }
 
     public function test_severity_ceiling_helper(): void

@@ -7,12 +7,19 @@ namespace Funnypot\Compiler;
 /**
  * Gate A — request eligibility.
  *
- * Inverts nuclei's own `IsClusterable()` (cluster.go): a request is clusterable iff
- * NOT(payloads || fuzzing || raw || body || unsafe || req-condition || name). Nuclei
- * only clusters simple single-shot path requests with declarative matchers, so that
- * gate doubles as our invertibility pre-filter.
+ * The core of nuclei's `IsClusterable()` (cluster.go) still gates us: fuzzing, unsafe,
+ * req-condition and named requests are per-target or multi-step and stay excluded. But
+ * two classes nuclei declines to cluster are still statically invertible, and admitting
+ * them is the largest single coverage win (a third of scanner probes are POST):
+ *   - single-request `raw:` — the request line pins one METHOD + literal path and the
+ *     matchers are ordinary; TemplateLoader lifts the method/path so it routes like a
+ *     path template. Multi-request raw is a flow and stays excluded.
+ *   - `payloads:`/`body:` with a LITERAL path — the payloads only vary the request; we
+ *     answer statically and never vary by payload, so the fixed path + static matchers
+ *     compile. A path built from a payload/{{var}} still folds at the variable-path
+ *     screen below (that enumeration case is deferred).
  *
- * We add the exclusions nuclei has no reason to make but we must:
+ * We keep the exclusions nuclei has no reason to make but we must:
  *   - interactsh/OOB: the scanner waits for a callback to ITS OWN collaborator; we can
  *     never satisfy it, so any interactsh reference is unfakeable.
  *   - xpath-only: matching needs a real DOM/XML query engine at match time; out of scope.
@@ -27,19 +34,11 @@ final class ClusterableFilter
 {
     public function reject(LoadedTemplate $t): ?string
     {
-        // --- inverse of IsClusterable() ---
         $sig = $t->eligibilitySignals;
-        if (!empty($sig['payloads'])) {
-            return 'gateA:payloads';
-        }
+
+        // Hard exclusions — not rescued by raw/payload admission.
         if (!empty($sig['fuzzing'])) {
             return 'gateA:fuzzing';
-        }
-        if (!empty($sig['raw'])) {
-            return 'gateA:raw';
-        }
-        if (!empty($sig['body'])) {
-            return 'gateA:body';
         }
         if (!empty($sig['unsafe'])) {
             return 'gateA:unsafe';
@@ -50,6 +49,18 @@ final class ClusterableFilter
         if (!empty($sig['name'])) {
             return 'gateA:request-name';
         }
+
+        // Raw admission: only a single raw request is invertible from one response.
+        if (!empty($sig['raw'])) {
+            if ($t->rawRequestCount > 1) {
+                return 'gateA:multi-raw';
+            }
+            if ($t->paths === []) {
+                return 'gateA:raw-unparsable';
+            }
+        }
+        // payloads/body are intentionally NOT rejected here: a literal-path payload/body
+        // template survives, a variable-path one folds at the path screen below.
 
         // --- our additions ---
         if ($t->hasFlow || $t->requestCount > 1) {

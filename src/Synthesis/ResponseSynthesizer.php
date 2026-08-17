@@ -377,6 +377,15 @@ final class ResponseSynthesizer
             }
         }
 
+        // Per-response cosmetic salt: a realistic, always-safe varying header so the full
+        // response is never byte-identical across requests. Once funnypot is public its
+        // deterministic bodies would otherwise be catalogued by content hash; a varying
+        // request id (like real servers send) breaks that. Pure hex — cannot contain a
+        // forbidden/hf substring or a CRLF, and never a matcher target.
+        if (!isset($headers['X-Request-Id'])) {
+            $headers['X-Request-Id'] = bin2hex(random_bytes(8));
+        }
+
         // C8: no synthesized header name/value may carry CR, LF, or NUL.
         foreach ($headers as $name => $value) {
             if (preg_match('/[\r\n\x00]/', $name) === 1 || preg_match('/[\r\n\x00]/', $value) === 1) {

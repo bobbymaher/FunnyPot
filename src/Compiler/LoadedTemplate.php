@@ -11,6 +11,10 @@ namespace Funnypot\Compiler;
  * Nuclei clusters (and we route) on a single request per template. `requestCount`
  * and the raw eligibility signals let Gate A reject multi-step / non-clusterable
  * templates before any matcher work.
+ *
+ * For a `raw:` template the method/path are lifted out of the first raw HTTP request
+ * line (there is no separate `method`/`path` key). `rawRequestCount` is the number of
+ * raw requests in the block; only a single-request raw block is invertible.
  */
 final class LoadedTemplate
 {
@@ -20,6 +24,7 @@ final class LoadedTemplate
      * @param array<int,mixed>      $matchers         raw matcher blocks (assoc arrays)
      * @param array<string,mixed>   $eligibilitySignals raw first-request keys used by Gate A
      *                                                 (raw/payloads/body/fuzzing/unsafe/name/req-condition)
+     * @param int                   $rawRequestCount  raw HTTP requests in the block (0 when not raw)
      */
     public function __construct(
         public string $id,
@@ -34,7 +39,8 @@ final class LoadedTemplate
         public int $requestCount,
         public bool $hasFlow,
         public array $eligibilitySignals,
-        public string $rawText
+        public string $rawText,
+        public int $rawRequestCount = 0
     ) {
     }
 }

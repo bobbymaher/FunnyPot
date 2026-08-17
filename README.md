@@ -22,7 +22,7 @@ PSR-15 and Laravel adapters.
 ## Install
 
 ```bash
-composer require funnypot/funnypot
+composer require bobbymaher/funnypot
 ```
 
 ## Quick start
@@ -107,6 +107,27 @@ respond on.
 
 Or use the PSR-15 / Laravel middleware — see `src/Http/InverterMiddleware.php` and
 `src/Laravel/InverterMiddleware.php`.
+
+## Run as a standalone honeypot (Docker)
+
+funnypot is also a drop-on-a-server honeypot on its own — no host app required. The
+[`demo/`](demo/) directory is a full front controller: a **"Welcome to funnypot" homepage with a
+live dashboard**, and every other request is run through the honeypot and **logged (detections and
+non-detections alike)** to stderr and a file.
+
+```bash
+# compose
+cd demo && docker compose up --build
+
+# or plain docker
+docker build -f demo/Dockerfile -t funnypot . && docker run --rm -p 8080:8080 funnypot
+
+# or no docker
+php -S 0.0.0.0:8080 -t demo demo/index.php
+```
+
+Open <http://localhost:8080>, then point a scanner at it (`nuclei -u http://localhost:8080 -t http/exposures/`)
+and watch the hits land. See [`demo/README.md`](demo/README.md).
 
 ## How it works (compile once, serve forever)
 

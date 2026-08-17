@@ -11,6 +11,7 @@ use Funnypot\Support\PathNormalizer;
 use Funnypot\Support\PersonaSelector;
 use Funnypot\Support\Severity;
 use Funnypot\Synthesis\ResponseSynthesizer;
+use Funnypot\Template\TemplateAttackEmulator;
 
 /**
  * Core engine. Framework-agnostic and side-effect-free (all logging/scoring/banning
@@ -25,6 +26,7 @@ final class NucleiInverter implements Inverter
     private Config $config;
     private InverterObserver $observer;
     private ResponseSynthesizer $synthesizer;
+    private ?TemplateAttackEmulator $attackEmulator;
 
     public function __construct(
         private CompiledStore $store,
@@ -34,6 +36,7 @@ final class NucleiInverter implements Inverter
         $this->config = $config ?? new Config();
         $this->observer = $observer ?? new NullObserver();
         $this->synthesizer = new ResponseSynthesizer(EmulatorRegistry::default(), $this->config->responseStyle);
+        $this->attackEmulator = $this->config->attackEmulation ? TemplateAttackEmulator::fromPackage() : null;
     }
 
     /**
@@ -47,15 +50,56 @@ final class NucleiInverter implements Inverter
 
     public function detect(RequestContext $r): Detection
     {
-        $key = PathNormalizer::key($r->method, $r->path);
-        $entry = $this->store->lookup($key);
-        if ($entry === null) {
+        $resolved = $this->resolveEntry($r->method, $r->path);
+        if ($resolved === null) {
             return Detection::none();
         }
+        [$key, $entry] = $resolved;
 
         $detection = $this->detectionFor($key, $this->detectIds($entry));
 
         return $detection->isEmpty() ? Detection::none() : $detection;
+    }
+
+    /**
+     * Resolve a request to a route entry with cheap fallbacks, so the GET-only index
+     * still answers the POST/HEAD and slash/case variants scanners send (a third of
+     * probes are POST). Order: exact match; then the GET bundle for the same path (for
+     * POST/HEAD only — never OPTIONS/TRACE, which a real server answers differently);
+     * then trailing-slash and lower-cased path variants.
+     *
+     * @return array{0:string,1:array<string,mixed>}|null [routing key, entry]
+     */
+    private function resolveEntry(string $method, string $path): ?array
+    {
+        $upper = strtoupper($method);
+        $norm = PathNormalizer::normalize($path);
+
+        $methods = [$upper];
+        if (($upper === 'POST' || $upper === 'HEAD') && !in_array('GET', $methods, true)) {
+            $methods[] = 'GET';
+        }
+
+        $paths = [$norm];
+        if ($norm !== '/') {
+            $paths[] = substr($norm, -1) === '/' ? rtrim($norm, '/') : $norm . '/';
+        }
+        $lower = strtolower($norm);
+        if ($lower !== $norm) {
+            $paths[] = $lower;
+        }
+
+        foreach ($methods as $m) {
+            foreach ($paths as $p) {
+                $key = $m . ' ' . $p;
+                $entry = $this->store->lookup($key);
+                if ($entry !== null) {
+                    return [$key, $entry];
+                }
+            }
+        }
+
+        return null;
     }
 
     public function respond(RequestContext $r): ?SynthesizedResponse
@@ -72,12 +116,13 @@ final class NucleiInverter implements Inverter
             return null;
         }
 
-        // matched-only guarantee: a miss returns null so the app serves its real 404.
-        $key = PathNormalizer::key($r->method, $r->path);
-        $entry = $this->store->lookup($key);
-        if ($entry === null) {
-            return null;
+        // matched-only guarantee: a miss returns null so the app serves its real 404 —
+        // unless an injection payload is present and attack emulation is on.
+        $resolved = $this->resolveEntry($r->method, $r->path);
+        if ($resolved === null) {
+            return $this->tryAttack($r);
         }
+        [$key, $entry] = $resolved;
 
         $allBundles = $entry['b'] ?? [];
         if ($allBundles === []) {
@@ -127,6 +172,13 @@ final class NucleiInverter implements Inverter
             return $this->declined($r, Outcome::OVER_CAP);
         }
 
+        // Pause (base + random jitter) so responses aren't the instant, uniform sub-ms
+        // replies that fingerprint a honeypot. No-op when both latency knobs are 0.
+        $delay = $this->config->serveDelayMicros();
+        if ($delay > 0) {
+            usleep($delay);
+        }
+
         $this->observer->onOutcome($r, $response, Outcome::SERVED);
 
         return $response;
@@ -137,6 +189,44 @@ final class NucleiInverter implements Inverter
         $this->observer->onOutcome($r, null, $reason);
 
         return null;
+    }
+
+    /**
+     * When no template routes, try interactive attack-class emulation on the request's
+     * payload (LFI/SQLi/SSTI/command-injection/reflected-XSS). Only runs when opted in;
+     * reached only after the kill-switch, mode, and trusted-bypass checks. Honours the
+     * severity ceiling (fake RCE stays off by default) and the body-size cap.
+     */
+    private function tryAttack(RequestContext $r): ?SynthesizedResponse
+    {
+        if ($this->attackEmulator === null) {
+            return null;
+        }
+
+        // Seed fake values from the persona so a given attacker sees stable, but per-attacker
+        // distinct, fabricated secrets (not one shared seed-0 value that would fingerprint).
+        $attack = $this->attackEmulator->emulate($r, crc32($this->config->seedFor($r)));
+        if ($attack === null) {
+            return null;
+        }
+
+        $this->observer->onDetection($r, $attack->satisfies);
+
+        if (Severity::exceeds($attack->satisfies->highestSeverity, $this->config->severityCeiling)) {
+            return $this->declined($r, Outcome::NO_CANDIDATE);
+        }
+        if (strlen($attack->body) > $this->config->maxBodyBytes) {
+            return $this->declined($r, Outcome::OVER_CAP);
+        }
+
+        $delay = $this->config->serveDelayMicros();
+        if ($delay > 0) {
+            usleep($delay);
+        }
+
+        $this->observer->onOutcome($r, $attack, Outcome::SERVED);
+
+        return $attack;
     }
 
     /**

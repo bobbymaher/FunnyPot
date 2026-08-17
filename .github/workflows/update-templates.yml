@@ -59,6 +59,14 @@ jobs:
           php -d memory_limit=2G bin/funnypot compile /tmp/nuclei-templates/http \
             --out=resources/compiled/nuclei-index.full.php
 
+      - name: Recompile funnypot templates and fold new pages
+        run: |
+          # A fresh index has no funnypot routes; recompile the attack + route templates
+          # and fold brand-new product pages back in (merge-routes is idempotent).
+          php bin/funnypot compile-emulators
+          php bin/funnypot compile-routes
+          php bin/funnypot merge-routes
+
       - name: Unit + compiler tests
         run: vendor/bin/phpunit
 
@@ -81,3 +89,6 @@ jobs:
             resources/compiled/nuclei-index.full.php
             resources/compiled/manifest.json
             resources/compiled/skipped.json
+            resources/compiled/funnypot-attack.php
+            resources/compiled/funnypot-routes.php
+            resources/compiled/funnypot-routes-index.php

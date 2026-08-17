@@ -6,73 +6,69 @@ namespace Funnypot\Tests;
 
 use Funnypot\Response\BundleValidator;
 use Funnypot\Response\EmulatedContent;
-use Funnypot\Response\Emulator\ApacheServerStatusEmulator;
-use Funnypot\Response\Emulator\HtpasswdEmulator;
-use Funnypot\Response\Emulator\PackageJsonEmulator;
-use Funnypot\Response\Emulator\PhpinfoEmulator;
-use Funnypot\Response\Emulator\SqlDumpEmulator;
-use Funnypot\Response\Emulator\SshPrivateKeyEmulator;
-use Funnypot\Response\Emulator\WpConfigEmulator;
-use Funnypot\Response\Emulator\WpLoginEmulator;
-use Funnypot\Response\EmulatorRegistry;
+use Funnypot\Response\RouteTemplateEmulator;
+use Funnypot\Response\RouteTemplateSet;
 use Funnypot\Response\Style;
-
 use PHPUnit\Framework\TestCase;
 
 /**
- * Each new endpoint emulator is proven against a REAL compiled bundle: we load the full
- * template index, pick the route/bundle the emulator claims, and assert its REALISTIC
- * and TAUNT bodies satisfy that bundle's own matcher constraints (via BundleValidator —
- * the same checks nuclei applies). The registry is exercised through find() so routing
- * and registration are covered too. This is the guarantee that breadth never breaks the
- * scanner contract.
+ * The built-in endpoint fakes are now data (compiled route templates driven by one
+ * RouteTemplateEmulator). Each is proven against a REAL compiled bundle: we load the full
+ * template index, pick the route/bundle the template claims, assert the route set selects
+ * the expected rule, and assert its REALISTIC and TAUNT bodies satisfy that bundle's own
+ * matcher constraints (via BundleValidator — the same checks nuclei applies). This is the
+ * guarantee that breadth never breaks the scanner contract.
  */
 final class EmulatorBreadthTest extends TestCase
 {
     /** @var array<string,mixed>|null */
     private static ?array $index = null;
 
+    private function set(): RouteTemplateSet
+    {
+        return RouteTemplateSet::fromFile(__DIR__ . '/../resources/compiled/funnypot-routes.php');
+    }
+
     /**
-     * label => [route key, bundle index within that route, expected emulator class].
+     * label => [route key, bundle index within that route, expected route-template id].
      * Every route/bundle here is a real entry in resources/compiled/nuclei-index.full.php.
      *
-     * @return array<string, array{0:string,1:int,2:class-string}>
+     * @return array<string, array{0:string,1:int,2:string}>
      */
     public static function targets(): array
     {
         return [
-            'wp-config backup (aws + db keys)' => ['GET /wp-config.php-backup', 0, WpConfigEmulator::class],
-            'phpinfo page'                     => ['GET /tool/view/phpinfo.view.php', 0, PhpinfoEmulator::class],
-            'htpasswd'                         => ['GET /.htpasswd', 0, HtpasswdEmulator::class],
-            'apache server-status'             => ['GET /server-status', 0, ApacheServerStatusEmulator::class],
-            'apache server-info'               => ['GET /server-info', 0, ApacheServerStatusEmulator::class],
-            'package.json'                     => ['GET /package.json', 0, PackageJsonEmulator::class],
-            'package-lock.json'                => ['GET /package-lock.json', 0, PackageJsonEmulator::class],
-            'ssh/pem private key'              => ['GET /cgi-bin/privatekey.pem', 0, SshPrivateKeyEmulator::class],
-            'sql dump / db backup'             => ['GET /install/froxlor.sql', 0, SqlDumpEmulator::class],
-            'wp-login (registration open)'     => ['GET /wp-login.php', 1, WpLoginEmulator::class],
+            'wp-config backup (aws + db keys)' => ['GET /wp-config.php-backup', 0, 'route-wp-config'],
+            'phpinfo page'                     => ['GET /tool/view/phpinfo.view.php', 0, 'route-phpinfo'],
+            'htpasswd'                         => ['GET /.htpasswd', 0, 'route-htpasswd'],
+            'apache server-status'             => ['GET /server-status', 0, 'route-apache-server-status'],
+            'apache server-info'               => ['GET /server-info', 0, 'route-apache-server-status'],
+            'package.json'                     => ['GET /package.json', 0, 'route-package-json'],
+            'package-lock.json'                => ['GET /package-lock.json', 0, 'route-package-json'],
+            'ssh/pem private key'              => ['GET /cgi-bin/privatekey.pem', 0, 'route-ssh-private-key'],
+            'sql dump / db backup'             => ['GET /install/froxlor.sql', 0, 'route-sql-dump'],
+            'wp-login (registration open)'     => ['GET /wp-login.php', 1, 'route-wp-login'],
         ];
     }
 
     /**
      * @dataProvider targets
      */
-    public function test_registry_routes_the_real_bundle_to_this_emulator(string $route, int $i, string $class): void
+    public function test_route_set_selects_the_expected_template(string $route, int $i, string $id): void
     {
-        $bundle = $this->bundle($route, $i);
-        $emulator = EmulatorRegistry::default()->find($bundle);
+        $rule = $this->set()->findRule($this->bundle($route, $i));
 
-        self::assertInstanceOf($class, $emulator, "{$route} #{$i} must be served by {$class}");
+        self::assertNotNull($rule, "{$route} #{$i} must select a route template");
+        self::assertSame($id, $rule['id'], "{$route} #{$i} must be served by {$id}");
     }
 
     /**
      * @dataProvider targets
      */
-    public function test_realistic_body_satisfies_the_real_bundle(string $route, int $i, string $class): void
+    public function test_realistic_body_satisfies_the_real_bundle(string $route, int $i, string $id): void
     {
         $bundle = $this->bundle($route, $i);
-        $emulator = EmulatorRegistry::default()->find($bundle);
-        self::assertInstanceOf($class, $emulator);
+        $emulator = new RouteTemplateEmulator($this->set());
 
         $content = $emulator->render($bundle, Style::REALISTIC, 4242);
         self::assertNotNull($content, "{$route} realistic render must not decline its own bundle");
@@ -85,11 +81,10 @@ final class EmulatorBreadthTest extends TestCase
     /**
      * @dataProvider targets
      */
-    public function test_taunt_body_satisfies_and_carries_the_marker(string $route, int $i, string $class): void
+    public function test_taunt_body_satisfies_and_carries_the_marker(string $route, int $i, string $id): void
     {
         $bundle = $this->bundle($route, $i);
-        $emulator = EmulatorRegistry::default()->find($bundle);
-        self::assertInstanceOf($class, $emulator);
+        $emulator = new RouteTemplateEmulator($this->set());
 
         $content = $emulator->render($bundle, Style::TAUNT, 4242);
         self::assertNotNull($content);
@@ -103,11 +98,10 @@ final class EmulatorBreadthTest extends TestCase
     /**
      * @dataProvider targets
      */
-    public function test_output_is_byte_identical_per_seed(string $route, int $i, string $class): void
+    public function test_output_is_byte_identical_per_seed(string $route, int $i, string $id): void
     {
         $bundle = $this->bundle($route, $i);
-        $emulator = EmulatorRegistry::default()->find($bundle);
-        self::assertInstanceOf($class, $emulator);
+        $emulator = new RouteTemplateEmulator($this->set());
 
         $a = $emulator->render($bundle, Style::REALISTIC, 777);
         $b = $emulator->render($bundle, Style::REALISTIC, 777);

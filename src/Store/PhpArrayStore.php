@@ -43,28 +43,42 @@ final class PhpArrayStore implements CompiledStore
         $this->manifest = $index['manifest'] ?? [];
     }
 
+    /** @var array<string,array<string,mixed>> parsed index cache, keyed by path */
+    private static array $fileCache = [];
+
     public static function fromFile(string $path): self
     {
-        if (!is_file($path)) {
-            throw new InvalidArgumentException("Compiled index not found: {$path}");
+        // Cache the parsed index per path for the life of the process. The compiled
+        // file is multi-megabyte, so under a persistent worker (php-fpm, RoadRunner)
+        // this loads it ONCE per worker instead of re-materializing it per request —
+        // the difference between surviving a scanner's request flood and timing out.
+        // Restart the worker to pick up a recompiled index.
+        if (!isset(self::$fileCache[$path])) {
+            if (!is_file($path)) {
+                throw new InvalidArgumentException("Compiled index not found: {$path}");
+            }
+
+            /** @var mixed $index */
+            $index = require $path;
+
+            if (!is_array($index)) {
+                throw new InvalidArgumentException("Compiled index did not return an array: {$path}");
+            }
+
+            self::$fileCache[$path] = $index;
         }
 
-        /** @var mixed $index */
-        $index = require $path;
-
-        if (!is_array($index)) {
-            throw new InvalidArgumentException("Compiled index did not return an array: {$path}");
-        }
-
-        return new self($index);
+        return new self(self::$fileCache[$path]);
     }
 
     /**
-     * Load the artifact bundled with the package.
+     * Load the full prebuilt index shipped with the package (the real ~5k-template
+     * artifact produced by the compiler). `nuclei-index.php` alongside it is a small
+     * hand-written fixture used only by unit tests, not this.
      */
     public static function fromPackage(): self
     {
-        return self::fromFile(dirname(__DIR__, 2) . '/resources/compiled/nuclei-index.php');
+        return self::fromFile(dirname(__DIR__, 2) . '/resources/compiled/nuclei-index.full.php');
     }
 
     public function lookup(string $key): ?array

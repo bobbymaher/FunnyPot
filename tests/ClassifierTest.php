@@ -144,8 +144,10 @@ final class ClassifierTest extends TestCase
 
     // ---- Gate A exclusions ----
 
-    public function test_payloads_template_is_gate_a_excluded(): void
+    public function test_variable_path_payload_template_is_still_excluded(): void
     {
+        // R4 (deferred): a payload BUILDS the request path, so it can never be pinned to a
+        // compile-time route key — it must still fold, now at the variable-path screen.
         $doc = [
             'id' => 'has-payloads',
             'info' => ['severity' => 'high', 'tags' => 'test'],
@@ -157,21 +159,132 @@ final class ClassifierTest extends TestCase
             ]],
         ];
 
-        self::assertSame('gateA:payloads', $this->gateA->reject($this->load($doc)));
+        self::assertSame('gateA:variable-path', $this->gateA->reject($this->load($doc)));
     }
 
-    public function test_raw_template_is_gate_a_excluded(): void
+    public function test_payloads_literal_path_template_is_admitted(): void
     {
+        // R3: the payloads only fill the request body/query; the path is a literal, so the
+        // template compiles on its fixed path + static matchers, ignoring the payloads.
         $doc = [
-            'id' => 'has-raw',
+            'id' => 'esafenet-like',
+            'info' => ['severity' => 'high', 'tags' => 'default-login'],
+            'http' => [[
+                'method' => 'POST',
+                'path' => ['{{BaseURL}}/CDGServer3/SystemConfig'],
+                'body' => 'name={{username}}&pass={{password}}',
+                'payloads' => ['username' => ['admin'], 'password' => ['x']],
+                'matchers-condition' => 'and',
+                'matchers' => [
+                    ['type' => 'word', 'part' => 'body', 'words' => ['est.connection.url']],
+                    ['type' => 'status', 'status' => [200]],
+                ],
+            ]],
+        ];
+
+        self::assertNull($this->gateA->reject($this->load($doc)), 'literal-path payload template must pass Gate A');
+        $c = $this->classify($doc);
+        self::assertTrue($c->in, 'a literal-path payload template must classify IN');
+        self::assertSame(200, $c->plan->status);
+        self::assertContains('est.connection.url', $c->plan->bodyWords);
+    }
+
+    public function test_single_request_raw_template_is_admitted(): void
+    {
+        // R2: the raw request line pins METHOD + literal path; matchers invert normally.
+        $doc = [
+            'id' => 'raw-post',
             'info' => ['severity' => 'high', 'tags' => 'test'],
             'http' => [[
-                'raw' => ["GET / HTTP/1.1\nHost: {{Hostname}}"],
+                'raw' => ["POST /api/login HTTP/1.1\nHost: {{Hostname}}\n\nu=a&p=b"],
+                'matchers-condition' => 'and',
+                'matchers' => [
+                    ['type' => 'word', 'part' => 'body', 'words' => ['authToken']],
+                    ['type' => 'status', 'status' => [200]],
+                ],
+            ]],
+        ];
+
+        $loaded = $this->load($doc);
+        self::assertSame('POST', $loaded->method, 'method is lifted from the raw request line');
+        self::assertSame(['{{BaseURL}}/api/login'], $loaded->paths, 'path is lifted from the raw request line');
+        self::assertNull($this->gateA->reject($loaded), 'single-request raw must pass Gate A');
+
+        $c = $this->classify($doc);
+        self::assertTrue($c->in, 'a single-request raw template must classify IN');
+        self::assertContains('authToken', $c->plan->bodyWords);
+    }
+
+    public function test_bare_path_raw_request_gets_baseurl_prefixed(): void
+    {
+        // A raw target is host-relative ("/x"); it is rewritten to {{BaseURL}}/x so route
+        // keys agree byte-for-byte with a path template's.
+        $doc = [
+            'id' => 'raw-get',
+            'info' => ['severity' => 'low', 'tags' => 'test'],
+            'http' => [[
+                'raw' => ["GET /solr/admin/cores?wt=json HTTP/1.1\nHost: {{Hostname}}"],
                 'matchers' => [['type' => 'status', 'status' => [200]]],
             ]],
         ];
 
-        self::assertSame('gateA:raw', $this->gateA->reject($this->load($doc)));
+        $loaded = $this->load($doc);
+        self::assertSame('GET', $loaded->method);
+        self::assertSame(['{{BaseURL}}/solr/admin/cores?wt=json'], $loaded->paths);
+        self::assertNull($this->gateA->reject($loaded));
+    }
+
+    public function test_raw_request_annotation_line_is_skipped(): void
+    {
+        // Nuclei raw annotations (@timeout, @tls-sni, …) precede the request line; the
+        // parser must step over them to find "METHOD target HTTP/x".
+        $doc = [
+            'id' => 'raw-annotated',
+            'info' => ['severity' => 'high', 'tags' => 'test'],
+            'http' => [[
+                'raw' => ["@timeout 10s\nGET /wp-admin/admin-ajax.php?id=1 HTTP/1.1\nHost: {{Hostname}}"],
+                'matchers' => [['type' => 'status', 'status' => [200]]],
+            ]],
+        ];
+
+        $loaded = $this->load($doc);
+        self::assertSame('GET', $loaded->method);
+        self::assertSame(['{{BaseURL}}/wp-admin/admin-ajax.php?id=1'], $loaded->paths);
+        self::assertNull($this->gateA->reject($loaded));
+    }
+
+    public function test_multi_request_raw_template_is_excluded(): void
+    {
+        // Two raw requests are a flow: only the first is routed, so later-step matchers
+        // could never be satisfied. Stays excluded.
+        $doc = [
+            'id' => 'raw-multi',
+            'info' => ['severity' => 'high', 'tags' => 'test'],
+            'http' => [[
+                'raw' => [
+                    "GET /step1 HTTP/1.1\nHost: {{Hostname}}",
+                    "GET /step2 HTTP/1.1\nHost: {{Hostname}}",
+                ],
+                'matchers' => [['type' => 'status', 'status' => [200]]],
+            ]],
+        ];
+
+        self::assertSame('gateA:multi-raw', $this->gateA->reject($this->load($doc)));
+    }
+
+    public function test_variable_path_raw_template_is_excluded(): void
+    {
+        // A raw target carrying an unresolved {{...}} in the path itself cannot be pinned.
+        $doc = [
+            'id' => 'raw-var',
+            'info' => ['severity' => 'high', 'tags' => 'test'],
+            'http' => [[
+                'raw' => ["GET /{{core}}/select HTTP/1.1\nHost: {{Hostname}}"],
+                'matchers' => [['type' => 'status', 'status' => [200]]],
+            ]],
+        ];
+
+        self::assertSame('gateA:variable-path', $this->gateA->reject($this->load($doc)));
     }
 
     public function test_interactsh_template_is_gate_a_excluded(): void

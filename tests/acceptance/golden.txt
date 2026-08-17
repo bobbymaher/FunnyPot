@@ -12,3 +12,6 @@ buildpath-file-disclosure
 tyk-gateway-detect
 aws-credentials
 prtg-detect
+esafenet-cdg-default-login
+xerox-default-login
+CVE-2019-13392
