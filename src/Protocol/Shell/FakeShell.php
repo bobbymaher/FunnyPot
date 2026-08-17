@@ -46,19 +46,60 @@ final class FakeShell
         '/root/.ssh/known_hosts' => "",
     ];
 
-    /** Run one command line; append output. Updates cwd / close on exit. */
+    /**
+     * Run a command line and return its output. Attackers routinely chain commands
+     * (`cd /tmp; wget …; chmod +x …; ./x`), so a line is split on the top-level sequencing
+     * operators and each statement runs in turn against the same session (cwd carries across).
+     * Conditionals are not evaluated — every segment simply runs, which is enough to look real.
+     */
     public function run(string $line, ProtocolSession $s): string
+    {
+        $out = '';
+        foreach ($this->split($line) as $statement) {
+            $out .= $this->runStatement($statement, $s);
+            if ($s->close || strlen($out) > self::MAX_OUTPUT) {
+                break;
+            }
+        }
+        if (strlen($out) > self::MAX_OUTPUT) {
+            $out = substr($out, 0, self::MAX_OUTPUT);
+        }
+
+        return $out;
+    }
+
+    /** @return string[] Non-empty statements split on `;`, `&&`, `||` and newlines (pipes preserved). */
+    private function split(string $line): array
+    {
+        $parts = preg_split('/\s*(?:&&|\|\||;|\r?\n)\s*/', trim($line)) ?: [];
+        $parts = array_values(array_filter($parts, static fn (string $p): bool => trim($p) !== ''));
+
+        return array_slice($parts, 0, 50);
+    }
+
+    /** Run a single statement; append output. Updates cwd / close on exit. */
+    private function runStatement(string $line, ProtocolSession $s): string
     {
         $line = trim($line);
         if ($line === '') {
             return '';
+        }
+        // Pipes: emulate only the producer (left of the first pipe). Filters like `head`/`grep`/
+        // `wc` can't be interpreted here, so their effect is dropped — the whole line is still
+        // logged upstream for intel, and showing the producer's output stays believable.
+        if (strpos($line, '|') !== false) {
+            $segments = preg_split('/\s*\|\s*/', $line) ?: [$line];
+            $line = trim($segments[0]);
+            if ($line === '') {
+                return '';
+            }
         }
         // A leading `sudo` just runs the rest (we are already "root").
         $parts = preg_split('/\s+/', $line) ?: [];
         $cmd = strtolower($parts[0]);
         $args = array_slice($parts, 1);
         if ($cmd === 'sudo' && $args !== []) {
-            return $this->run(implode(' ', $args), $s);
+            return $this->runStatement(implode(' ', $args), $s);
         }
 
         $out = $this->dispatch($cmd, $args, $line, $s);

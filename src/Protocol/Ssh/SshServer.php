@@ -1,0 +1,207 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Funnypot\Protocol\Ssh;
+
+use Funnypot\Protocol\ProtocolSession;
+
+/**
+ * Zero-dependency, single-process TCP server for the pure-PHP SSH honeypot. Like the plain
+ * {@see \Funnypot\Protocol\Listener} it holds many connections in one non-blocking stream_select
+ * loop, but SSH needs a per-connection crypto state machine and buffered writes, so each socket
+ * carries an {@see SshConnection} and an outbound queue. Every connection, credential attempt and
+ * shell command is logged through the injected logger into the same store the dashboard reads.
+ *
+ * All bounds are enforced: max concurrent connections, per-source-IP cap, idle timeout, and the
+ * connection's own inbound cap — a long-lived crypto surface must never become a self-DoS.
+ */
+final class SshServer
+{
+    private const MAX_CONNS = 128;
+    private const PER_IP_CONNS = 12;
+    private const IDLE_TIMEOUT = 120;   // seconds
+    private const READ_CHUNK = 16384;
+
+    /** @param callable(array<string,mixed>):void $logger */
+    public function __construct(
+        private HostKey $hostKey,
+        private $logger,
+        private string $serverVersion = 'SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.10'
+    ) {
+    }
+
+    /** Bind and serve forever. $bind is "host:port", e.g. "0.0.0.0:2222". */
+    public function run(string $bind): void
+    {
+        $server = @stream_socket_server("tcp://{$bind}", $errno, $errstr);
+        if ($server === false) {
+            fwrite(STDERR, "funnypot-ssh: cannot bind {$bind}: {$errstr}\n");
+
+            return;
+        }
+        stream_set_blocking($server, false);
+        $port = self::portOf($bind);
+        fwrite(STDERR, "funnypot-ssh on {$bind}\n");
+
+        /** @var array<int,array{sock:resource,conn:SshConnection,ip:string,last:int,wbuf:string}> $conns */
+        $conns = [];
+        $perIp = [];
+
+        while (true) {
+            $read = [$server];
+            $write = [];
+            foreach ($conns as $c) {
+                $read[] = $c['sock'];
+                if ($c['wbuf'] !== '') {
+                    $write[] = $c['sock'];
+                }
+            }
+            $except = [];
+            if (@stream_select($read, $write, $except, 1) === false) {
+                continue;
+            }
+            $now = time();
+
+            foreach ($read as $r) {
+                if ($r === $server) {
+                    $this->accept($server, $conns, $perIp, $port, $now);
+                    continue;
+                }
+                $id = get_resource_id($r);
+                if (!isset($conns[$id])) {
+                    continue;
+                }
+                $data = @fread($r, self::READ_CHUNK);
+                if ($data === '' || $data === false) {
+                    $this->close($conns, $perIp, $id);
+                    continue;
+                }
+                $conns[$id]['last'] = $now;
+                $conns[$id]['conn']->feed($data);
+                $conns[$id]['wbuf'] .= $conns[$id]['conn']->takeOut();
+                $this->flush($conns, $perIp, $id);
+            }
+
+            foreach ($write as $w) {
+                $id = get_resource_id($w);
+                if (isset($conns[$id])) {
+                    $this->flush($conns, $perIp, $id);
+                }
+            }
+
+            foreach ($conns as $id => $c) {
+                if ($now - $c['last'] > self::IDLE_TIMEOUT) {
+                    $this->close($conns, $perIp, $id);
+                }
+            }
+        }
+    }
+
+    /**
+     * @param resource                                                                          $server
+     * @param array<int,array{sock:resource,conn:SshConnection,ip:string,last:int,wbuf:string}> $conns
+     * @param array<string,int>                                                                 $perIp
+     */
+    private function accept($server, array &$conns, array &$perIp, int $port, int $now): void
+    {
+        $sock = @stream_socket_accept($server, 0, $peer);
+        if ($sock === false) {
+            return;
+        }
+        $ip = self::ipOf((string) $peer);
+        if (count($conns) >= self::MAX_CONNS || ($perIp[$ip] ?? 0) >= self::PER_IP_CONNS) {
+            @fclose($sock);
+
+            return;
+        }
+        stream_set_blocking($sock, false);
+        $session = new ProtocolSession(crc32($ip));
+        $conn = new SshConnection(
+            $this->hostKey,
+            $session,
+            fn (string $event, string $detail) => $this->log($ip, $port, $event, $detail),
+            $this->serverVersion
+        );
+        $conn->onConnect();
+        $id = get_resource_id($sock);
+        $conns[$id] = ['sock' => $sock, 'conn' => $conn, 'ip' => $ip, 'last' => $now, 'wbuf' => $conn->takeOut()];
+        $perIp[$ip] = ($perIp[$ip] ?? 0) + 1;
+        $this->flush($conns, $perIp, $id);
+    }
+
+    /**
+     * Write as much of the connection's outbound queue as the socket accepts; close once the
+     * connection is finished and fully drained.
+     *
+     * @param array<int,array{sock:resource,conn:SshConnection,ip:string,last:int,wbuf:string}> $conns
+     * @param array<string,int>                                                                 $perIp
+     */
+    private function flush(array &$conns, array &$perIp, int $id): void
+    {
+        if (!isset($conns[$id])) {
+            return;
+        }
+        $buf = $conns[$id]['wbuf'];
+        if ($buf !== '') {
+            $n = @fwrite($conns[$id]['sock'], $buf);
+            if ($n === false) {
+                $this->close($conns, $perIp, $id);
+
+                return;
+            }
+            $conns[$id]['wbuf'] = $n > 0 ? substr($buf, $n) : $buf;
+        }
+        $conn = $conns[$id]['conn'];
+        if ($conns[$id]['wbuf'] === '' && ($conn->isClosed() || $conn->shouldClose())) {
+            $this->close($conns, $perIp, $id);
+        }
+    }
+
+    /**
+     * @param array<int,array{sock:resource,conn:SshConnection,ip:string,last:int,wbuf:string}> $conns
+     * @param array<string,int>                                                                 $perIp
+     */
+    private function close(array &$conns, array &$perIp, int $id): void
+    {
+        if (!isset($conns[$id])) {
+            return;
+        }
+        @fclose($conns[$id]['sock']);
+        $ip = $conns[$id]['ip'];
+        if (isset($perIp[$ip]) && --$perIp[$ip] <= 0) {
+            unset($perIp[$ip]);
+        }
+        unset($conns[$id]);
+    }
+
+    private function log(string $ip, int $port, string $event, string $detail): void
+    {
+        ($this->logger)([
+            'ts' => gmdate('c'),
+            'ip' => $ip,
+            'method' => 'SSH',
+            'path' => substr($detail, 0, 200),
+            'proto' => 'ssh',
+            'port' => $port,
+            'event' => $event,
+            'matched' => true,
+            'severity' => $event === 'login' ? 'high' : 'medium',
+            'served' => $event === 'command',
+        ]);
+    }
+
+    private static function ipOf(string $peer): string
+    {
+        $p = strrpos($peer, ':');
+
+        return $p === false ? $peer : substr($peer, 0, $p);
+    }
+
+    private static function portOf(string $bind): int
+    {
+        $p = strrpos($bind, ':');
+
+        return $p === false ? 0 : (int) substr($bind, $p + 1);
+    }
+}

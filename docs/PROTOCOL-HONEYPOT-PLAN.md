@@ -216,6 +216,21 @@ new template, zero new PHP.**
 
 ## 3. SSH — the hard one (do not pretend it is templatable)
 
+> **STATUS 2026-08 — SUPERSEDED: a pure-PHP SSH server shipped.** This section
+> recommended a Go/Python sidecar and rejected hand-rolling SSH in PHP. That call
+> was reversed for one decisive reason: **a compiled sidecar is not portable.** A
+> Go binary has to be built and shipped per OS *and* per CPU arch (linux/amd64,
+> linux/arm64, …); the composer package can't know where it runs. A pure-PHP
+> server runs wherever PHP + `ext-sodium` + `ext-openssl` do — the same "PHP
+> alone" promise as the rest of the engine. It was built in `src/Protocol/Ssh/`
+> (curve25519-sha256 kex, ssh-ed25519 host key, aes256-ctr + hmac-sha2-256),
+> completes the handshake against real OpenSSH, accepts all auth (capturing
+> credentials + offered keys), and drops the attacker into the **same
+> `FakeShell`** telnet uses — every command logged. The crypto surface is
+> deliberately narrow (server-only, one algorithm per role, no client-signature
+> verification) and never executes attacker input. The Tier-1 banner analysis
+> below stands as history; Tier 2 is now pure PHP, not a sidecar.
+
 **SSH is an encrypted transport.** Before any shell bytes exist, both sides run
 a version-string exchange, then `SSH_MSG_KEXINIT` negotiation, a key exchange
 (curve25519 / diffie-hellman-group14), host-key auth, cipher/MAC selection, and

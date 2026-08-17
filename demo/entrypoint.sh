@@ -39,9 +39,10 @@ fi
 
 php-fpm --daemonize
 
-# Protocol honeypots: one background listener per plaintext protocol (each is a bounded
-# select loop). They log connections + every command into the same store the dashboard reads.
-# Disable with FUNNYPOT_PROTOCOLS=0.
+# Protocol honeypots: one background listener per protocol (each a bounded select loop). The
+# plaintext ones are data-driven emulators; ssh is a full pure-PHP SSH-2.0 server that terminates
+# the crypto handshake and drops attackers into the same fake shell as telnet. All log connections
+# + every command into the same store the dashboard reads. Disable with FUNNYPOT_PROTOCOLS=0.
 if [ "${FUNNYPOT_PROTOCOLS:-1}" != "0" ]; then
     php /app/demo/listen.php redis     0.0.0.0:6379  &
     php /app/demo/listen.php ftp       0.0.0.0:21    &
