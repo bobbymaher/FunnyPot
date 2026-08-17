@@ -15,6 +15,13 @@ final class ProtocolSession
     public int $requests = 0;
     public bool $close = false;
 
+    // Shell state (used only by protocols with a `shell` block): login -> password -> shell.
+    public string $phase = 'login';
+    public string $user = '';
+    public string $cwd = '/root';
+    public bool $authed = false;
+    public int $authTries = 0;
+
     public function __construct(public int $seed = 0)
     {
     }

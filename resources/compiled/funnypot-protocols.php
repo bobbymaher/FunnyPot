@@ -454,20 +454,26 @@ db0:keys=3,expires=0,avg_ttl=0',
     array (
       0 => 'protocol',
       1 => 'telnet',
+      2 => 'shell',
     ),
     'banner' => '
 Ubuntu 22.04.3 LTS
-login: ',
+web01 login: ',
     'framing' => 'line',
     'rules' => 
     array (
     ),
-    'default' => 
+    'default' => NULL,
+    'shell' => 
     array (
-      'send' => 'Password: 
-Login incorrect
+      'hostname' => 'web01',
+      'home' => '/root',
+      'password_prompt' => 'Password: ',
+      'reject_attempts' => 0,
+      'motd' => '
+Welcome to Ubuntu 22.04.3 LTS (GNU/Linux 5.15.0-91-generic x86_64)
 
-login: ',
+',
     ),
   ),
 );

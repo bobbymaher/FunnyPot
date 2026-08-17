@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Funnypot\Protocol;
 
+use Funnypot\Protocol\Shell\FakeShell;
 use Funnypot\Template\DirectiveRenderer;
 
 /**
@@ -23,6 +24,7 @@ final class ProtocolEmulator
 
     private DirectiveRenderer $renderer;
     private Codec $codec;
+    private ?FakeShell $shell = null;
 
     /** @param array<string,mixed> $protocol compiled protocol rules */
     public function __construct(
@@ -76,6 +78,10 @@ final class ProtocolEmulator
 
     private function respond(string $request, ProtocolSession $s): string
     {
+        if (isset($this->protocol['shell'])) {
+            return $this->shellRespond($request, $s);
+        }
+
         foreach ((array) ($this->protocol['rules'] ?? []) as $rule) {
             $caps = $this->match((array) ($rule['match'] ?? []), $request);
             if ($caps !== null) {
@@ -90,6 +96,52 @@ final class ProtocolEmulator
         $default = $this->protocol['default']['send'] ?? null;
 
         return $default === null ? '' : $this->codec->wrap($this->renderSend($default, [], $s->seed));
+    }
+
+    /**
+     * Shell protocols: accept-all login (login -> password) then a fake interactive shell that
+     * logs every typed command (via the feed() callback) and returns canned output. The shell
+     * never executes anything — see FakeShell.
+     */
+    private function shellRespond(string $request, ProtocolSession $s): string
+    {
+        $cfg = (array) $this->protocol['shell'];
+        $host = (string) ($cfg['hostname'] ?? 'server');
+
+        if (!$s->authed) {
+            if ($s->phase !== 'password') {
+                $s->user = ($u = trim($request)) !== '' ? $u : 'root';
+                $s->phase = 'password';
+
+                return (string) ($cfg['password_prompt'] ?? "Password: ");
+            }
+            // password line — accept-all (optionally reject the first few for realism)
+            $s->authTries++;
+            if ($s->authTries <= (int) ($cfg['reject_attempts'] ?? 0)) {
+                $s->phase = 'login';
+
+                return "\r\nLogin incorrect\r\n" . (string) ($this->protocol['banner'] ?? '');
+            }
+            $s->authed = true;
+            $s->phase = 'shell';
+            $s->cwd = (string) ($cfg['home'] ?? '/root');
+
+            return (string) ($cfg['motd'] ?? "\r\nWelcome.\r\n\r\n") . $this->prompt($s, $host);
+        }
+
+        $out = $this->fakeShell()->run($request, $s);
+
+        return $s->close ? $out : $out . $this->prompt($s, $host);
+    }
+
+    private function prompt(ProtocolSession $s, string $host): string
+    {
+        return $s->user . '@' . $host . ':' . $s->cwd . ($s->user === 'root' ? '# ' : '$ ');
+    }
+
+    private function fakeShell(): FakeShell
+    {
+        return $this->shell ??= new FakeShell();
     }
 
     /**

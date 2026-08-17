@@ -1,11 +1,15 @@
 protocol: telnet
 listen: [23]
 severity: medium
-tags: [protocol, telnet]
+tags: [protocol, telnet, shell]
 framing: line
-# Phase-1 telnet: banner + brute-force logging (never lets anyone in). The interactive fake
-# shell (accept-all auth, canned ls/cat/whoami) is the shared shell layer, added next phase.
-banner: "\r\nUbuntu 22.04.3 LTS\r\nlogin: "
+# Accept-all login into a Cowrie-style fake shell (fake filesystem, canned commands). Every
+# typed command is logged. The shell never executes anything — see Protocol\Shell\FakeShell.
+banner: "\r\nUbuntu 22.04.3 LTS\r\nweb01 login: "
+shell:
+  hostname: web01
+  home: /root
+  password_prompt: "Password: "
+  reject_attempts: 0        # accept the first password (raise to harvest more brute-force creds)
+  motd: "\r\nWelcome to Ubuntu 22.04.3 LTS (GNU/Linux 5.15.0-91-generic x86_64)\r\n\r\n"
 rules: []
-default:
-  send: "Password: \r\nLogin incorrect\r\n\r\nlogin: "
