@@ -105,6 +105,14 @@ if ($response !== null) {
     return true;
 }
 
+// An archive probe (.zip / .tar.gz) on a path with no template: instead of a plain 404,
+// hand back a nested decoy archive. Peeling it — layer after layer of archives down to
+// fabricated secrets — wastes the attacker's time. Bounded (a few KB, extracts to a few KB):
+// a time sink, never a decompression bomb.
+if (demo_serve_decoy_archive($context, $logFile, $clientIp)) {
+    return true;
+}
+
 // Non-detection (or matched-but-declined): a believable server 404, not a constant
 // "Not Found" string that screams honeypot.
 http_response_code(404);
@@ -114,6 +122,71 @@ echo demo_not_found();
 return true;
 
 // --------------------------------------------------------------------------
+
+/**
+ * Serve a nested decoy archive for a .zip / .tar.gz probe that would otherwise 404. The
+ * decoys are prebuilt static assets (scripts/build-decoys.sh) named after what was asked
+ * for, so the response looks like a real backup download. Returns true when it served one.
+ *
+ * Off-switch: FUNNYPOT_DECOY_ARCHIVE=0. GET only.
+ */
+function demo_serve_decoy_archive(RequestContext $r, string $logFile, string $clientIp): bool
+{
+    if ($r->method !== 'GET' || getenv('FUNNYPOT_DECOY_ARCHIVE') === '0') {
+        return false;
+    }
+
+    // Longest suffix first so .tar.gz wins over .gz.
+    $map = [
+        '.tar.gz' => ['backup.tar.gz', 'application/gzip'],
+        '.tgz' => ['backup.tar.gz', 'application/gzip'],
+        '.gz' => ['backup.tar.gz', 'application/gzip'],
+        '.zip' => ['backup.zip', 'application/zip'],
+    ];
+    $path = strtolower($r->path);
+    $decoy = null;
+    $ctype = '';
+    foreach ($map as $ext => [$file, $type]) {
+        if (substr($path, -strlen($ext)) === $ext) {
+            $decoy = $file;
+            $ctype = $type;
+            break;
+        }
+    }
+    if ($decoy === null) {
+        return false;
+    }
+
+    $full = __DIR__ . '/decoys/' . $decoy;
+    if (!is_file($full)) {
+        return false;
+    }
+    $bytes = (string) file_get_contents($full);
+
+    // Name the download after the requested file so it reads like a genuine backup.
+    $name = basename($r->path);
+    if ($name === '' || strpos($name, '.') === false) {
+        $name = $decoy;
+    }
+    $name = preg_replace('/[^\w.\-]/', '_', $name);
+
+    demo_log($logFile, [
+        'ts' => gmdate('c'),
+        'ip' => $clientIp,
+        'method' => 'GET',
+        'path' => substr($r->path, 0, 200),
+        'event' => 'decoy-archive',
+        'decoy' => $decoy,
+    ]);
+
+    http_response_code(200);
+    header('Content-Type: ' . $ctype);
+    header('Content-Disposition: attachment; filename="' . $name . '"');
+    header('Content-Length: ' . strlen($bytes));
+    echo $bytes;
+
+    return true;
+}
 
 /**
  * A believable server 404 — indistinguishable from a real nginx not-found, so an

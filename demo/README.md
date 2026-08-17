@@ -47,8 +47,14 @@ From another shell, act like a scanner:
 curl http://localhost:8080/.git/config          # served a believable fake git config
 curl http://localhost:8080/.env                 # served a believable fake .env
 curl http://localhost:8080/nope                 # a normal 404 (logged as a non-detection)
+curl -O http://localhost:8080/backup.zip        # a nested decoy archive — unzip it, find another zip…
 nuclei -u http://localhost:8080 -t http/exposures/   # watch dozens light up on the dashboard
 ```
+
+A `.zip` / `.tar.gz` probe on a path with no template gets a **nested decoy archive** instead of a
+404: peel a layer, find another archive, repeat down to fabricated secrets. It wastes an attacker's
+time re-extracting — bounded (a few KB, extracts to a few KB), never a decompression bomb. Rebuild
+the assets with `scripts/build-decoys.sh`; disable with `FUNNYPOT_DECOY_ARCHIVE=0`.
 
 Watch them appear on the homepage, and stream the raw log with `docker logs -f <container>`.
 
@@ -58,6 +64,7 @@ Watch them appear on the homepage, and stream the raw log with `docker logs -f <
 |---|---|---|
 | `FUNNYPOT_STYLE` | `realistic` | `minimal` \| `realistic` \| `taunt` |
 | `FUNNYPOT_LOG` | `demo/storage/hits.log` | where hit JSON lines are written |
+| `FUNNYPOT_DECOY_ARCHIVE` | on | serve a nested decoy archive for `.zip`/`.tar.gz` 404s; `0` to disable |
 
 > The demo serves a fake to **every** matched probe (`gate` is always open) and reveals itself on
 > the homepage — that's the point of a *demo*. For real deployment, gate on your own suspicion
