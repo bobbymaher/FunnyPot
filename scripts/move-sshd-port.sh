@@ -5,15 +5,16 @@
 #
 #   scripts/move-sshd-port.sh add 2200
 #       -> sshd now listens on BOTH 22 and 2200 (nothing lost yet).
-#       -> THEN: open 2200 inbound in the EC2 security group, and prove you can SSH in on 2200:
+#       -> THEN open 2200 inbound in the EC2 security group, and PROVE you can SSH in on 2200:
 #            ssh -i <key> -p 2200 ec2-user@<host>
 #   scripts/move-sshd-port.sh finalize 2200 --yes
 #       -> removes port 22 from sshd (only after verifying 2200 listens). 22 is now free.
 #       -> THEN redeploy the honeypot onto 22:
 #            FUNNYPOT_SSH_PORT=2200 FUNNYPOT_SSH_ON_22=1 scripts/deploy.sh
 #
-# Uses drop-in /etc/ssh/sshd_config.d/ (Ubuntu 20.04+/AL2023); errors out if the host doesn't
-# use drop-ins, so it never blindly rewrites the main sshd_config.
+# Works with either a sshd_config.d/ drop-in (Ubuntu 20.04+/AL2023) or a marked block in the
+# main sshd_config (AL2 and older). It backs up the config, validates with `sshd -t` before
+# every reload, and `add` never removes port 22 — so a bad edit can't lock you out.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -46,34 +47,74 @@ echo "==> ${ACTION} sshd port ${PORT} on ${USER}@${HOST} (connecting on ${CONN_P
 ssh -i "$KEY" -p "$CONN_PORT" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20 \
     "$USER@$HOST" "ACTION='$ACTION' PORT='$PORT' CONFIRM='$CONFIRM' bash -s" <<'REMOTE'
 set -euo pipefail
-DROP=/etc/ssh/sshd_config.d/00-funnypot-sshport.conf
+MAIN=/etc/ssh/sshd_config
+DROPDIR=/etc/ssh/sshd_config.d
+DROP="$DROPDIR/00-funnypot-sshport.conf"
+BEGIN='# >>> funnypot ssh port (managed) >>>'
+END='# <<< funnypot ssh port (managed) <<<'
 
-if ! grep -qsE '^\s*Include\s+/etc/ssh/sshd_config\.d' /etc/ssh/sshd_config; then
-    echo "ERROR: this host's sshd_config has no drop-in Include; move the port by hand to avoid a bad edit." >&2
-    exit 1
+USE_DROPIN=0
+if grep -qsE '^[[:space:]]*Include[[:space:]]+/etc/ssh/sshd_config\.d' "$MAIN"; then
+    USE_DROPIN=1
 fi
 
 reload_sshd() {
     sudo sshd -t
-    sudo systemctl reload ssh 2>/dev/null || sudo systemctl reload sshd 2>/dev/null || sudo systemctl restart sshd
+    sudo systemctl reload ssh 2>/dev/null || sudo systemctl reload sshd 2>/dev/null \
+        || sudo service sshd reload 2>/dev/null || sudo systemctl restart sshd
+}
+
+# An explicit uncommented "Port 22" outside our managed block?
+explicit_22() {
+    { grep -hsE '^[[:space:]]*Port[[:space:]]+22[[:space:]]*$' "$MAIN"; \
+      grep -hsE '^[[:space:]]*Port[[:space:]]+22[[:space:]]*$' "$DROPDIR"/*.conf 2>/dev/null | grep -v funnypot; } \
+        | grep -q . 2>/dev/null
+}
+
+# Build the port block. Keep 22 unless it is already explicitly configured elsewhere.
+port_block() {
+    local want_new="$1"
+    if explicit_22; then
+        printf 'Port %s\n' "$want_new"
+    else
+        printf 'Port 22\nPort %s\n' "$want_new"   # 22 is implicit -> assert it so we stay dual
+    fi
 }
 
 if [ "$ACTION" = "add" ]; then
-    printf 'Port 22\nPort %s\n' "$PORT" | sudo tee "$DROP" >/dev/null
+    if [ "$USE_DROPIN" = 1 ]; then
+        sudo mkdir -p "$DROPDIR"
+        port_block "$PORT" | sudo tee "$DROP" >/dev/null
+    else
+        sudo cp -n "$MAIN" "${MAIN}.funnypot.bak"
+        sudo sed -i "/$BEGIN/,/$END/d" "$MAIN"
+        { echo "$BEGIN"; port_block "$PORT"; echo "$END"; } | sudo tee -a "$MAIN" >/dev/null
+    fi
     reload_sshd
     echo "OK: sshd now listens on 22 AND ${PORT} (both work — no lockout)."
     echo "NEXT: open ${PORT} inbound in the security group, SSH in on ${PORT} to VERIFY, then:"
     echo "      scripts/move-sshd-port.sh finalize ${PORT} --yes"
+
 elif [ "$ACTION" = "finalize" ]; then
     if [ "$CONFIRM" != "--yes" ]; then
         echo "REFUSING: verify you can SSH in on ${PORT} first, then pass --yes." >&2
         exit 1
     fi
-    if ! ss -tlnH 2>/dev/null | grep -qE "[:.]${PORT}\b" && ! ss -tln 2>/dev/null | grep -qE "[:.]${PORT}\b"; then
+    if ! ss -tlnH 2>/dev/null | grep -qE "[:.]${PORT}[[:space:]]" && ! ss -tln 2>/dev/null | grep -qE "[:.]${PORT}([[:space:]]|$)"; then
         echo "ERROR: sshd is not listening on ${PORT} — run 'add' and verify before finalizing." >&2
         exit 1
     fi
-    printf 'Port %s\n' "$PORT" | sudo tee "$DROP" >/dev/null
+    if [ "$USE_DROPIN" = 1 ]; then
+        printf 'Port %s\n' "$PORT" | sudo tee "$DROP" >/dev/null
+    else
+        sudo sed -i "/$BEGIN/,/$END/d" "$MAIN"
+        { echo "$BEGIN"; printf 'Port %s\n' "$PORT"; echo "$END"; } | sudo tee -a "$MAIN" >/dev/null
+    fi
+    # If port 22 is ALSO configured outside our block, comment it out so 22 is truly free.
+    if explicit_22; then
+        sudo cp -n "$MAIN" "${MAIN}.funnypot.bak"
+        sudo sed -i 's/^\([[:space:]]*Port[[:space:]]\+22[[:space:]]*\)$/#\1  # funnypot: freed for honeypot/' "$MAIN"
+    fi
     reload_sshd
     echo "OK: sshd now listens on ${PORT} only; port 22 is free for the honeypot."
     echo "NEXT: FUNNYPOT_SSH_PORT=${PORT} FUNNYPOT_SSH_ON_22=1 scripts/deploy.sh"
