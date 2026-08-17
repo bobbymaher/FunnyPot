@@ -1,0 +1,20 @@
+protocol: memcached
+listen: [11211]
+severity: medium
+tags: [protocol, memcached, cache]
+framing: line
+banner: ""
+rules:
+  - match: { equals: "version" }
+    send: "VERSION 1.6.21\r\n"
+  - match: { prefix: "stats" }
+    send: "STAT pid 1\r\nSTAT version 1.6.21\r\nSTAT uptime 824113\r\nSTAT curr_connections 1\r\nSTAT curr_items 0\r\nEND\r\n"
+  - match: { prefix: "get" }
+    send: "END\r\n"           # nothing stored — inert
+  - match: { regex: '^(set|add|replace)\b' }
+    send: "STORED\r\n"        # acknowledged but never actually stored
+  - match: { prefix: "quit" }
+    send: ""
+    close: true
+default:
+  send: "ERROR\r\n"

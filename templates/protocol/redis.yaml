@@ -1,0 +1,46 @@
+protocol: redis
+listen: [6379]
+severity: medium
+tags: [protocol, redis, cache]
+framing: resp
+banner: ""            # redis is silent on connect
+rules:
+  - match: { equals: "PING" }
+    send: "+PONG\r\n"
+  - match: { prefix: "AUTH" }        # accept-all: any password "works"
+    send: "+OK\r\n"
+  - match: { prefix: "INFO" }
+    send:
+      bulk: |
+        # Server
+        redis_version:7.2.4
+        redis_mode:standalone
+        os:Linux 5.15.0 x86_64
+        arch_bits:64
+        process_id:1
+        run_id:{{fake.redis_runid:hex:40}}
+        tcp_port:6379
+        uptime_in_seconds:824113
+        # Clients
+        connected_clients:1
+        # Memory
+        used_memory_human:1.02M
+        maxmemory_human:0B
+        # Keyspace
+        db0:keys=3,expires=0,avg_ttl=0
+  - match: { prefix: "CONFIG GET" }
+    send:
+      bulk_array: ["dir", "/var/lib/redis"]
+  - match: { prefix: "COMMAND" }
+    send: "*0\r\n"
+  - match: { prefix: "SELECT" }
+    send: "+OK\r\n"
+  - match: { prefix: "CLIENT" }
+    send: "+OK\r\n"
+  - match: { regex: '^(GET|SET|DEL|KEYS|SCAN|HGETALL|LRANGE|TYPE|TTL|EXISTS)\b' }
+    send: "$-1\r\n"          # key not found — inert; nothing is ever stored
+  - match: { prefix: "QUIT" }
+    send: "+OK\r\n"
+    close: true
+default:
+  send: "-ERR unknown command\r\n"

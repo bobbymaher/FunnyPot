@@ -1,0 +1,11 @@
+protocol: telnet
+listen: [23]
+severity: medium
+tags: [protocol, telnet]
+framing: line
+# Phase-1 telnet: banner + brute-force logging (never lets anyone in). The interactive fake
+# shell (accept-all auth, canned ls/cat/whoami) is the shared shell layer, added next phase.
+banner: "\r\nUbuntu 22.04.3 LTS\r\nlogin: "
+rules: []
+default:
+  send: "Password: \r\nLogin incorrect\r\n\r\nlogin: "

@@ -1,0 +1,26 @@
+protocol: ftp
+listen: [21]
+severity: medium
+tags: [protocol, ftp]
+framing: line
+banner: "220 (vsFTPd 3.0.5)\r\n"
+rules:
+  - match: { prefix: "USER" }
+    send: "331 Please specify the password.\r\n"
+  - match: { prefix: "PASS" }        # accept-all login into a fake, empty session
+    send: "230 Login successful.\r\n"
+  - match: { prefix: "SYST" }
+    send: "215 UNIX Type: L8\r\n"
+  - match: { prefix: "FEAT" }
+    send: "211-Features:\r\n PASV\r\n UTF8\r\n211 End\r\n"
+  - match: { prefix: "PWD" }
+    send: "257 \"/\" is the current directory\r\n"
+  - match: { prefix: "TYPE" }
+    send: "200 Switching to Binary mode.\r\n"
+  - match: { regex: '^(LIST|NLST|MLSD)\b' }
+    send: "150 Here comes the directory listing.\r\n226 Directory send OK.\r\n"
+  - match: { prefix: "QUIT" }
+    send: "221 Goodbye.\r\n"
+    close: true
+default:
+  send: "500 Unknown command.\r\n"

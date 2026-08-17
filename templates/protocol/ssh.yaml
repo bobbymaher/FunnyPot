@@ -1,0 +1,17 @@
+protocol: ssh
+listen: [2222]
+severity: medium
+tags: [protocol, ssh, banner]
+framing: raw
+# SSH Tier-1: the version-identification line is plaintext BEFORE any key exchange, so this
+# catches banner-grabbers / version-vuln sweeps. We send a realistic banner, read the client's
+# banner + first bytes (logged as intel), and close — no crypto handshake, no shell. The
+# interactive fake shell over real SSH is a separate component (Go crypto sidecar), not a template.
+banner: "SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6\r\n"
+rules:
+  - match: { regex: '^SSH-' }        # the client's own version banner
+    send: ""
+    close: true
+default:
+  send: ""
+  close: true

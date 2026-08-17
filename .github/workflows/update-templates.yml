@@ -65,6 +65,7 @@ jobs:
           # and fold brand-new product pages back in (merge-routes is idempotent).
           php bin/funnypot compile-emulators
           php bin/funnypot compile-routes
+          php bin/funnypot compile-protocols
           php bin/funnypot merge-routes
 
       - name: Unit + compiler tests
@@ -92,3 +93,4 @@ jobs:
             resources/compiled/funnypot-attack.php
             resources/compiled/funnypot-routes.php
             resources/compiled/funnypot-routes-index.php
+            resources/compiled/funnypot-protocols.php

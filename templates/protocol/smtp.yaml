@@ -1,0 +1,27 @@
+protocol: smtp
+listen: [25]
+severity: medium
+tags: [protocol, smtp, mail]
+framing: line
+banner: "220 mail.example.com ESMTP Postfix (Ubuntu)\r\n"
+# Canned 250s only — the fake SMTP NEVER stores or relays mail (no open relay).
+rules:
+  - match: { prefix: "EHLO" }
+    send: "250-mail.example.com\r\n250-PIPELINING\r\n250-SIZE 10240000\r\n250 8BITMIME\r\n"
+  - match: { prefix: "HELO" }
+    send: "250 mail.example.com\r\n"
+  - match: { prefix: "MAIL" }
+    send: "250 2.1.0 Ok\r\n"
+  - match: { prefix: "RCPT" }
+    send: "250 2.1.5 Ok\r\n"
+  - match: { prefix: "DATA" }
+    send: "354 End data with <CR><LF>.<CR><LF>\r\n"
+  - match: { prefix: "RSET" }
+    send: "250 2.0.0 Ok\r\n"
+  - match: { prefix: "NOOP" }
+    send: "250 2.0.0 Ok\r\n"
+  - match: { prefix: "QUIT" }
+    send: "221 2.0.0 Bye\r\n"
+    close: true
+default:
+  send: "502 5.5.2 Error: command not recognized\r\n"
