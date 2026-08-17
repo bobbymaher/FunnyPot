@@ -1,0 +1,98 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Funnypot;
+
+use Closure;
+use Funnypot\Response\Style;
+
+/**
+ * Host-app policy for the inverter. Defaults make an install INERT: detect mode
+ * only, respond gate closed. The app opts in by raising `mode` to 'respond' and
+ * supplying a `gate` predicate.
+ *
+ * The closure knobs are `?Closure` so callers pass `fn (...) => ...`. All are
+ * side-effect-free predicates the core calls; the core never does I/O itself.
+ */
+final class Config
+{
+    /**
+     * @param string        $mode            off | detect | respond
+     * @param Closure|null  $gate            fn(RequestContext):bool — app suspicion predicate; null ⇒ closed (false)
+     * @param string        $pathScope       matched-only (only compiled paths) | any
+     * @param Closure|null  $personaSeed     fn(RequestContext):string — determinism source; null ⇒ host + salt
+     * @param string        $personaBreadth  coherent (one product persona) | greedy
+     * @param string        $responseStyle   minimal | realistic | taunt (see Response\Style)
+     * @param string        $severityCeiling refuse to fabricate anything stronger than this
+     * @param int           $maxBodyBytes    hard cap; a larger synthesized body is refused
+     * @param int           $latencyMs       optional tarpit delay applied by the emitter, never the core
+     * @param Closure|null  $trustedBypass   fn(RequestContext):bool — own scanners; true ⇒ never serve fakes
+     * @param Closure|null  $killSwitch      fn():bool — true ⇒ respond disabled (un-poison)
+     * @param Closure|null  $probeSignature  fn(RequestContext):bool — root/homepage (sig=1) fires ONLY when true; null ⇒ never
+     * @param string        $seedSalt        per-deploy salt so persona differs per site
+     * @param string[]      $exclude         template ids or tags to never serve
+     */
+    public function __construct(
+        public string $mode = 'detect',
+        public ?Closure $gate = null,
+        public string $pathScope = 'matched-only',
+        public ?Closure $personaSeed = null,
+        public string $personaBreadth = 'coherent',
+        public string $responseStyle = Style::MINIMAL,
+        public string $severityCeiling = 'high',
+        public int $maxBodyBytes = 65536,
+        public int $latencyMs = 0,
+        public ?Closure $trustedBypass = null,
+        public ?Closure $killSwitch = null,
+        public ?Closure $probeSignature = null,
+        public string $seedSalt = '',
+        public array $exclude = []
+    ) {
+    }
+
+    public function respondEnabled(): bool
+    {
+        return $this->mode === 'respond';
+    }
+
+    public function killSwitchTripped(): bool
+    {
+        return $this->killSwitch !== null && ($this->killSwitch)() === true;
+    }
+
+    public function isTrusted(RequestContext $r): bool
+    {
+        return $this->trustedBypass !== null && ($this->trustedBypass)($r) === true;
+    }
+
+    public function gateOpen(RequestContext $r): bool
+    {
+        return $this->gate !== null && ($this->gate)($r) === true;
+    }
+
+    /**
+     * Root / homepage-class (sig=1) entries fire only when this returns true, so an
+     * ordinary visitor to "/" never gets a fake. Defaults closed.
+     */
+    public function hasProbeSignature(RequestContext $r): bool
+    {
+        return $this->probeSignature !== null && ($this->probeSignature)($r) === true;
+    }
+
+    /**
+     * Determinism source for persona selection. Core default is host + salt only:
+     * spoof-proof and byte-identical on re-scan. It is deliberately NOT seeded on a
+     * client-IP header — an attacker-controlled X-Forwarded-For would let a prober
+     * rotate or enumerate personas. Behind a proxy the app should override with a
+     * network-coarsened real client IP so distinct sources still spread across personas.
+     */
+    public function seedFor(RequestContext $r): string
+    {
+        $base = $this->personaSeed !== null
+            ? (string) ($this->personaSeed)($r)
+            : $r->host;
+
+        return $base . '|' . $this->seedSalt;
+    }
+}

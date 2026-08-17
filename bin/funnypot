@@ -1,0 +1,104 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+/**
+ * funnypot CLI.
+ *
+ *   funnypot compile <templates-dir> [--out=PATH]
+ *
+ * Compiles the nuclei http template corpus into the schema-1 routing index plus
+ * manifest.json / skipped.json sidecars. symfony/yaml (a compile-time-only dependency)
+ * must be installed in the package vendor/.
+ */
+
+use Funnypot\Compiler\ArtifactWriter;
+use Funnypot\Compiler\Compiler;
+
+$root = dirname(__DIR__);
+
+$autoload = $root . '/vendor/autoload.php';
+if (!is_file($autoload)) {
+    fwrite(STDERR, "Missing vendor/autoload.php — run `composer install` in the package.\n");
+    exit(2);
+}
+require $autoload;
+
+$argvv = $argv;
+array_shift($argvv);
+$command = array_shift($argvv) ?? '';
+
+if ($command !== 'compile') {
+    fwrite(STDERR, "usage: funnypot compile <templates-dir> [--out=PATH]\n");
+    exit($command === '' || $command === 'help' || $command === '--help' ? 0 : 2);
+}
+
+$dir = null;
+$out = $root . '/resources/compiled/nuclei-index.full.php';
+foreach ($argvv as $arg) {
+    if (strncmp($arg, '--out=', 6) === 0) {
+        $out = substr($arg, 6);
+    } elseif ($dir === null && strncmp($arg, '--', 2) !== 0) {
+        $dir = $arg;
+    }
+}
+
+if ($dir === null || !is_dir($dir)) {
+    fwrite(STDERR, "error: templates dir not found: " . ($dir ?? '(none)') . "\n");
+    exit(2);
+}
+
+$meta = resolveUpstream($dir);
+
+$start = microtime(true);
+$compiler = new Compiler();
+$result = $compiler->compile($dir, $meta);
+
+$writer = new ArtifactWriter();
+$paths = $writer->write($result, $out);
+
+$elapsed = number_format(microtime(true) - $start, 1);
+$stats = $result['stats'];
+
+fwrite(STDOUT, "compiled in {$elapsed}s\n");
+fwrite(STDOUT, sprintf(
+    "  seen=%d  in=%d  route-keys=%d  multi-bundle-keys=%d  largest-bundle=%d  bundles=%d\n",
+    $stats['total'],
+    $stats['in'],
+    $stats['route_keys'] ?? 0,
+    $stats['multi_bundle_keys'] ?? 0,
+    $stats['largest_bundle_count'] ?? 0,
+    $stats['bundles_total'] ?? 0
+));
+fwrite(STDOUT, "  gateA-excluded=" . array_sum($stats['gateA']) . "  gateB-folded=" . array_sum($stats['gateB']) . "\n");
+fwrite(STDOUT, "  index:    {$paths['index']}\n");
+fwrite(STDOUT, "  manifest: {$paths['manifest']}\n");
+fwrite(STDOUT, "  skipped:  {$paths['skipped']}\n");
+fwrite(STDOUT, "  sha256:   {$paths['sha256']}\n");
+
+exit(0);
+
+/**
+ * Best-effort upstream tag + sha from the templates repo (or an ancestor).
+ *
+ * @return array<string,string>
+ */
+function resolveUpstream(string $dir): array
+{
+    $git = static function (string $dir, string $args): string {
+        $cmd = 'git -C ' . escapeshellarg($dir) . ' ' . $args . ' 2>/dev/null';
+        $out = @shell_exec($cmd);
+
+        return is_string($out) ? trim($out) : '';
+    };
+
+    $sha = $git($dir, 'rev-parse HEAD');
+    $tag = $git($dir, 'describe --tags --always');
+
+    return [
+        'tag' => $tag !== '' ? $tag : 'unknown',
+        'sha' => $sha !== '' ? $sha : 'unknown',
+        'built_at' => gmdate('c'),
+    ];
+}

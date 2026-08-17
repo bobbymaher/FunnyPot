@@ -1,0 +1,13 @@
+# funnypot standalone honeypot.
+#   cd demo && docker compose up --build
+# then open http://localhost:8080  (live dashboard) and point a scanner at it.
+services:
+  funnypot:
+    build:
+      context: ..                 # repo root — the Dockerfile copies src/ resources/ from there
+      dockerfile: demo/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      FUNNYPOT_STYLE: realistic    # minimal | realistic | taunt
+    restart: unless-stopped
