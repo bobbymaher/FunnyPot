@@ -431,6 +431,281 @@ INSERT INTO `panel_admins` VALUES (1,\'admin\',\'$2y$10${{fake.adminpw:hex:53}}\
   ),
   11 => 
   array (
+    'id' => 'route-weblogic',
+    'match' => 
+    array (
+      'template_needle' => 
+      array (
+        0 => 'weblogic-login',
+        1 => 'weblogic',
+      ),
+    ),
+    'body' => '<!DOCTYPE html>
+<html><head><title>Oracle WebLogic Server Administration Console</title></head>
+<body>
+<h1>Oracle WebLogic Server Administration Console</h1>
+<p>WebLogic Server Version: 10.3.6.0</p>
+<form action="/console/j_security_check" method="post">
+<label>Username</label><input name="j_username" type="text" />
+<label>Password</label><input name="j_password" type="password" />
+<input type="submit" value="Login" />
+</form>
+</body></html>
+',
+    'headers' => 
+    array (
+      'Content-Type' => 'text/html; charset=UTF-8',
+    ),
+    'taunt' => 
+    array (
+      'mode' => 'block',
+      'open' => '<!--',
+      'close' => '-->',
+    ),
+  ),
+  12 => 
+  array (
+    'id' => 'route-exchange-owa',
+    'match' => 
+    array (
+      'template_needle' => 
+      array (
+        0 => 'microsoft-exchange-panel',
+        1 => 'exchange-admin',
+      ),
+    ),
+    'body' => '<!DOCTYPE html>
+<html><head><title>Outlook</title></head>
+<body>
+<div id="loginArea">
+<h1>Exchange Admin Center</h1>
+<form action="/owa/auth.owa" method="POST">
+<input name="username" type="text" placeholder="domain\\user" />
+<input name="password" type="password" />
+<input type="submit" value="sign in" />
+</form>
+</div>
+</body></html>
+',
+    'headers' => 
+    array (
+      'Content-Type' => 'text/html; charset=utf-8',
+      'Server' => 'Microsoft-IIS/10.0',
+      'X-Powered-By' => 'ASP.NET',
+    ),
+    'taunt' => 
+    array (
+      'mode' => 'block',
+      'open' => '<!--',
+      'close' => '-->',
+    ),
+  ),
+  13 => 
+  array (
+    'id' => 'route-adminer',
+    'match' => 
+    array (
+      'template_needle' => 
+      array (
+        0 => 'adminer-panel',
+      ),
+    ),
+    'body' => '<!DOCTYPE html>
+<html><head><title>Adminer</title></head>
+<body>
+<h1>Adminer <span class="version">4.8.1</span></h1>
+<form action="" method="post">
+<p>System <select name="auth[driver]"><option value="server">MySQL</option></select></p>
+<p>Server <input name="auth[server]" value="localhost" /></p>
+<p>Username <input name="auth[username]" /></p>
+<p>Password <input type="password" name="auth[password]" /></p>
+<p>Database <input name="auth[db]" /></p>
+<p><input type="submit" value="Login" /></p>
+</form>
+</body></html>
+',
+    'headers' => 
+    array (
+      'Content-Type' => 'text/html; charset=utf-8',
+    ),
+    'taunt' => 
+    array (
+      'mode' => 'block',
+      'open' => '<!--',
+      'close' => '-->',
+    ),
+  ),
+  14 => 
+  array (
+    'id' => 'route-joomla',
+    'match' => 
+    array (
+      'template_needle' => 
+      array (
+        0 => 'joomla-panel',
+      ),
+    ),
+    'body' => '<!DOCTYPE html>
+<html><head>
+<meta name="generator" content="Joomla! - Open Source Content Management" />
+<title>Administration - Login</title>
+</head>
+<body>
+<form action="/administrator/index.php" method="post">
+<input name="username" type="text" />
+<input name="passwd" type="password" />
+<button type="submit">Log in</button>
+</form>
+</body></html>
+',
+    'headers' => 
+    array (
+      'Content-Type' => 'text/html; charset=utf-8',
+    ),
+    'taunt' => 
+    array (
+      'mode' => 'block',
+      'open' => '<!--',
+      'close' => '-->',
+    ),
+  ),
+  15 => 
+  array (
+    'id' => 'route-wp-readme',
+    'match' => 
+    array (
+      'template_needle' => 
+      array (
+        0 => 'wordpress-readme-file',
+      ),
+    ),
+    'body' => '<!DOCTYPE html>
+<html><head><title>WordPress &#8250; ReadMe</title></head>
+<body>
+<h1 id="logo">WordPress</h1>
+<p>Version {{pick:6.4.2,6.3.1,5.9.3,6.2.2}}</p>
+<h2>Installation</h2>
+<p>Famous 5-minute install.</p>
+</body></html>
+',
+    'headers' => 
+    array (
+      'Content-Type' => 'text/html; charset=UTF-8',
+    ),
+    'taunt' => 
+    array (
+      'mode' => 'block',
+      'open' => '<!--',
+      'close' => '-->',
+    ),
+  ),
+  16 => 
+  array (
+    'id' => 'route-citrix',
+    'match' => 
+    array (
+      'template_needle' => 
+      array (
+        0 => 'citrix-adc-gateway-panel',
+      ),
+    ),
+    'body' => '<!DOCTYPE html>
+<html><head><title>Citrix Gateway</title></head>
+<body>
+<div class="CTXMSAM_LogonFont">Citrix Gateway</div>
+<script type="text/javascript">var _ctxstxt_CitrixCopyright = "Citrix Systems, Inc. All rights reserved.";</script>
+<form method="post" action="/cgi/login">
+<input name="login" type="text" />
+<input name="passwd" type="password" />
+<input type="submit" value="Log On" />
+</form>
+</body></html>
+',
+    'headers' => 
+    array (
+      'Content-Type' => 'text/html; charset=utf-8',
+    ),
+    'taunt' => 
+    array (
+      'mode' => 'block',
+      'open' => '<!--',
+      'close' => '-->',
+    ),
+  ),
+  17 => 
+  array (
+    'id' => 'route-directory-listing',
+    'match' => 
+    array (
+      'template_needle' => 
+      array (
+        0 => 'directory-listing',
+      ),
+    ),
+    'body' => '<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
+<html><head><title>Index of /backup</title></head>
+<body>
+<h1>Index of /backup</h1>
+<pre><a href="?C=N;O=D">Name</a>  <a href="?C=M;O=A">Last modified</a>  <a href="?C=S;O=A">Size</a>
+<hr>
+<a href="../">Parent Directory</a>                       -
+<a href="database.sql">database.sql</a>      2024-01-01 12:00  4.2M
+<a href="config.php.bak">config.php.bak</a>  2024-01-01 12:00  2.1K
+<a href="www.tar.gz">www.tar.gz</a>          2024-01-01 12:00   18M
+<hr></pre>
+<address>Apache Server at localhost Port 80</address>
+</body></html>
+',
+    'headers' => 
+    array (
+      'Content-Type' => 'text/html; charset=utf-8',
+    ),
+    'taunt' => 
+    array (
+      'mode' => 'block',
+      'open' => '<!--',
+      'close' => '-->',
+    ),
+  ),
+  18 => 
+  array (
+    'id' => 'route-django-admin',
+    'match' => 
+    array (
+      'template_needle' => 
+      array (
+        0 => 'django-admin-panel',
+        1 => 'default-django-page',
+      ),
+    ),
+    'body' => '<!DOCTYPE html>
+<html lang="en"><head><title>Log in | Django site admin</title></head>
+<body class="login">
+<div id="container">
+<div id="header"><h1 id="site-name">Django administration</h1></div>
+<div id="content">
+<form action="/admin/login/" method="post" id="login-form">
+<div class="form-row"><label>Username:</label><input type="text" name="username" /></div>
+<div class="form-row"><label>Password:</label><input type="password" name="password" /></div>
+<div class="submit-row"><input type="submit" value="Log in" /></div>
+</form>
+</div>
+</div>
+</body></html>
+',
+    'headers' => 
+    array (
+      'Content-Type' => 'text/html; charset=utf-8',
+    ),
+    'taunt' => 
+    array (
+      'mode' => 'block',
+      'open' => '<!--',
+      'close' => '-->',
+    ),
+  ),
+  19 => 
+  array (
     'id' => 'route-tomcat-manager',
     'match' => 
     array (
@@ -469,7 +744,7 @@ INSERT INTO `panel_admins` VALUES (1,\'admin\',\'$2y$10${{fake.adminpw:hex:53}}\
       'close' => '-->',
     ),
   ),
-  12 => 
+  20 => 
   array (
     'id' => 'route-basic-auth',
     'match' => 
@@ -491,7 +766,7 @@ INSERT INTO `panel_admins` VALUES (1,\'admin\',\'$2y$10${{fake.adminpw:hex:53}}\
       'WWW-Authenticate' => 'Basic realm="Restricted Area"',
     ),
   ),
-  13 => 
+  21 => 
   array (
     'id' => 'route-credentials-txt',
     'match' => 
@@ -520,7 +795,7 @@ SMTP_PASSWORD={{fake.smtp:hex:20}}
       'open' => '#',
     ),
   ),
-  14 => 
+  22 => 
   array (
     'id' => 'route-terraform-tfstate',
     'match' => 
@@ -559,7 +834,7 @@ SMTP_PASSWORD={{fake.smtp:hex:20}}
       'key' => '_comment',
     ),
   ),
-  15 => 
+  23 => 
   array (
     'id' => 'route-users-csv',
     'match' => 
@@ -585,7 +860,7 @@ SMTP_PASSWORD={{fake.smtp:hex:20}}
       'open' => '#',
     ),
   ),
-  16 => 
+  24 => 
   array (
     'id' => 'route-sql-backup',
     'match' => 
@@ -619,7 +894,7 @@ INSERT INTO `users` VALUES (1,\'admin@example.com\',\'$2y$10${{fake.pw:hex:53}}\
       'open' => '--',
     ),
   ),
-  17 => 
+  25 => 
   array (
     'id' => 'route-phpmyadmin',
     'match' => 

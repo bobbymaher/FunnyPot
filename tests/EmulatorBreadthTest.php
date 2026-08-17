@@ -48,6 +48,14 @@ final class EmulatorBreadthTest extends TestCase
             'ssh/pem private key'              => ['GET /cgi-bin/privatekey.pem', 0, 'route-ssh-private-key'],
             'sql dump / db backup'             => ['GET /install/froxlor.sql', 0, 'route-sql-dump'],
             'wp-login (registration open)'     => ['GET /wp-login.php', 1, 'route-wp-login'],
+            'weblogic console login'           => ['GET /console/login/LoginForm.jsp', 0, 'route-weblogic'],
+            'exchange / owa logon'             => ['GET /owa/auth/logon.aspx', 0, 'route-exchange-owa'],
+            'adminer db login'                 => ['GET /adminer.php', 0, 'route-adminer'],
+            'joomla administrator'             => ['GET /administrator/', 0, 'route-joomla'],
+            'wordpress readme.html'            => ['GET /readme.html', 0, 'route-wp-readme'],
+            'citrix gateway logon'             => ['GET /logon/LogonPoint/index.html', 0, 'route-citrix'],
+            'apache directory listing'         => ['GET /backup/', 0, 'route-directory-listing'],
+            'django admin login'               => ['GET /admin/login/', 1, 'route-django-admin'],
         ];
     }
 

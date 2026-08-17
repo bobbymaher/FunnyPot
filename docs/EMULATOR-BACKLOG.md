@@ -20,9 +20,13 @@
 >   apache-status/package-json/ssh-key/sql-dump) + Tomcat manager (7).
 > - **Done (new_page):** Basic-Auth 401 (23), beelzebub fake-secrets bundle (21) —
 >   credentials.txt / terraform.tfstate / users.csv / SQL backup — and phpMyAdmin login (18).
-> - **Still open (route/product-deep):** file-upload serve-back (8), autoindex (22), robots/
->   TRACE (27), WordPress pack (25), django (24), and §2(c) Drupal/OWA/WebLogic/Citrix/MCP/
->   Lophiid (11,17,19,20,28,29).
+> - **Done (product-login enrich):** WebLogic (20), Exchange/OWA (19), Citrix Gateway (11),
+>   Adminer, Joomla, WordPress readme (25), Django admin (24), Apache directory listing (22).
+>   26 route templates ship.
+> - **Still open (low value / blocked):** file-upload serve-back (8, more attack-class than
+>   route), robots/TRACE/OPTIONS (27), Drupal (17, markers are awkward CHANGELOG fragments on
+>   a root bundle), MCP server (29), Lophiid appliance packs (28, GPLv2-gated). Attack side:
+>   RFI (10) / CRLF (15) / PHP object injection (16) still need real-template marker checks.
 
 
 _Extracted from TANNER/SNARE/Glastopf, product/CVE honeypots (Struts, Tomcat, Citrix, Drupal, phpMyAdmin, OWA…), LLM/config honeypots (galah, beelzebub, Lophiid, modpot), and a broad sweep. All items are safely canned (output-only or bounded/computed reflection) — never execute attacker input._
