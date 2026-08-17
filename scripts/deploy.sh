@@ -22,6 +22,10 @@ USER="${FUNNYPOT_USER:-ec2-user}"
 KEY="${FUNNYPOT_KEY:-}"
 # EC2 is x86_64; build for that even on an Apple-Silicon Mac. Override if your box differs.
 PLATFORM="${FUNNYPOT_PLATFORM:-linux/amd64}"
+# Optional: hostname that gets a real Let's Encrypt cert (issued by scripts/letsencrypt.sh).
+# When set, the container mounts the host cert store + ACME webroot and serves real HTTPS
+# for this host once a cert exists. Empty = self-signed everywhere (unchanged behaviour).
+LE_DOMAIN="${LE_DOMAIN:-}"
 
 if [ -z "$HOST" ] || [ -z "$KEY" ]; then
     echo "error: FUNNYPOT_HOST and FUNNYPOT_KEY are not set." >&2
@@ -61,10 +65,18 @@ for p in $PORTS; do PFLAGS="$PFLAGS -p $p:$p"; done
 # shellcheck disable=SC2029
 ssh "${SSH_OPTS[@]}" "$USER@$HOST" "
     DATA_DIR=\"\$HOME/funnypot-data\"
+    ACME_DIR=\"\$HOME/funnypot-acme\"
     mkdir -p \"\$DATA_DIR\" && chmod 0777 \"\$DATA_DIR\"
+    mkdir -p \"\$ACME_DIR/.well-known/acme-challenge\"
+    sudo mkdir -p /etc/letsencrypt
     sudo docker rm -f funnypot 2>/dev/null || true
     sudo docker run -d --name funnypot --restart unless-stopped \
-        -e FUNNYPOT_STYLE=realistic -v \"\$DATA_DIR\":/app/demo/storage $PFLAGS funnypot
+        -e FUNNYPOT_STYLE=realistic \
+        -e FUNNYPOT_LE_DOMAIN='$LE_DOMAIN' \
+        -v \"\$DATA_DIR\":/app/demo/storage \
+        -v \"\$ACME_DIR\":/var/acme:ro \
+        -v /etc/letsencrypt:/etc/letsencrypt:ro \
+        $PFLAGS funnypot
     sudo docker ps --filter name=funnypot --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' | head -3
     echo \"  logs on host: \$DATA_DIR/hits.log\"
 "

@@ -1,5 +1,5 @@
 {
-    "name": "funnypot/funnypot",
+    "name": "bobbymaher/funnypot",
     "description": "Inverse of a nuclei scanner: detect scanner probes and optionally synthesize the response the template expects.",
     "type": "library",
     "license": "MIT",

@@ -4,8 +4,11 @@
 # and runs REAL nuclei (Docker) against it, then diffs the fired template ids
 # against golden.txt. Exits non-zero if any golden id fails to fire.
 #
-# macOS Docker Desktop note: `--network=host` does NOT reach the mac host, so the
-# server runs on the host (127.0.0.1) and nuclei targets host.docker.internal.
+# Networking: nuclei runs in Docker and reaches the host via host.docker.internal (mapped
+# with --add-host=…:host-gateway). On a Linux CI runner that gateway is the docker bridge IP,
+# so the server MUST bind 0.0.0.0 — a 127.0.0.1 bind is unreachable from the container there
+# (it works on macOS Docker Desktop by luck). `--network=host` is not an option: it does not
+# reach the host on macOS Docker Desktop.
 #
 # Usage: tests/acceptance/run.sh
 set -euo pipefail
@@ -18,8 +21,8 @@ OUT="$HERE/nuclei-output.jsonl"
 
 cd "$ROOT"
 
-echo "== starting php -S 127.0.0.1:$PORT (full compiled index) =="
-php -S "127.0.0.1:$PORT" tests/acceptance/server.php >"$HERE/server.log" 2>&1 &
+echo "== starting php -S 0.0.0.0:$PORT (full compiled index) =="
+php -S "0.0.0.0:$PORT" tests/acceptance/server.php >"$HERE/server.log" 2>&1 &
 SERVER_PID=$!
 cleanup() { kill "$SERVER_PID" 2>/dev/null || true; }
 trap cleanup EXIT
