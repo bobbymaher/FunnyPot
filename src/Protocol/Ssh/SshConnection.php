@@ -439,7 +439,7 @@ final class SshConnection
             case 'shell':
                 $this->channelReply($wantReply, true);
                 $this->shellOpen = true;
-                $this->shellData("Last login: " . gmdate('D M j H:i:s Y') . " from 10.0.0.1\r\n");
+                $this->shellData(\Funnypot\Protocol\Taunt::motd() . "Last login: " . gmdate('D M j H:i:s Y') . " from 10.0.0.1\r\n");
                 $this->sendPrompt();
                 break;
             case 'exec':

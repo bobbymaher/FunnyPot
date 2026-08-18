@@ -254,7 +254,7 @@ final class ProtocolEmulator
             $s->phase = 'shell';
             $s->cwd = (string) ($cfg['home'] ?? '/root');
 
-            return (string) ($cfg['motd'] ?? "\r\nWelcome.\r\n\r\n") . $this->prompt($s, $host);
+            return Taunt::motd() . (string) ($cfg['motd'] ?? "\r\nWelcome.\r\n\r\n") . $this->prompt($s, $host);
         }
 
         $out = $this->fakeShell()->run($line, $s);
