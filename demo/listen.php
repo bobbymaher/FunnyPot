@@ -13,8 +13,9 @@ declare(strict_types=1);
  */
 
 require __DIR__ . '/../vendor/autoload.php';
-require __DIR__ . '/lib/store.php';
 
+use Funnypot\App\Config\AppConfig;
+use Funnypot\App\Storage\SqliteHitStore;
 use Funnypot\Policy\EmulationPolicy;
 use Funnypot\Protocol\Listener;
 use Funnypot\Protocol\ProtocolTemplateSet;
@@ -28,15 +29,14 @@ if ($protocol === '' || $bind === '') {
     exit(2);
 }
 
-$logFile = getenv('FUNNYPOT_LOG') ?: __DIR__ . '/storage/hits.log';
-@mkdir(dirname($logFile), 0777, true);
-$store = new Store($logFile, getenv('FUNNYPOT_DB') ?: __DIR__ . '/storage/funnypot.sqlite');
+$config = AppConfig::fromEnv(__DIR__);
+@mkdir(dirname($config->logPath), 0777, true);
+$store = new SqliteHitStore($config->dbPath, $config->logPath);
 $log = static fn (array $entry) => $store->append($entry);
 
 // Honour the emulation catalog: a service switched off in funnypot-vulns.json does not bind.
 // (Toggling a service needs a listener restart — the entrypoint relaunches on redeploy.)
-$vulns = getenv('FUNNYPOT_VULNS') ?: __DIR__ . '/storage/funnypot-vulns.json';
-$policy = EmulationPolicy::fromPackage(is_file($vulns) ? $vulns : null);
+$policy = EmulationPolicy::fromPackage(is_file($config->vulnsPath) ? $config->vulnsPath : null);
 if (!$policy->isEnabled('service-' . $protocol)) {
     fwrite(STDERR, "funnypot-listen {$protocol}: disabled in emulation catalog — not binding {$bind}\n");
     exit(0);

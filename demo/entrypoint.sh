@@ -101,4 +101,13 @@ if [ "${FUNNYPOT_PROTOCOLS:-1}" != "0" ]; then
     php /app/demo/listen.php ethernet-ip 0.0.0.0:44818 &
 fi
 
+# Periodic retention: prune the hit store by age + on-disk size. No-op unless FUNNYPOT_RETAIN_DAYS
+# / FUNNYPOT_RETAIN_GB are set. Interval seconds via FUNNYPOT_RETAIN_INTERVAL (default hourly).
+( while true; do php /app/demo/retention.php || true; sleep "${FUNNYPOT_RETAIN_INTERVAL:-3600}"; done ) &
+
+# Threat-intel blocklist refresh: fetch attacker feeds into intel.db so hits from known attackers
+# are flagged. No-op unless FUNNYPOT_BLOCKLIST=on. Refresh at boot, then every FUNNYPOT_BLOCKLIST_INTERVAL
+# seconds (default 6h).
+( php /app/demo/blocklist-refresh.php || true; while true; do sleep "${FUNNYPOT_BLOCKLIST_INTERVAL:-21600}"; php /app/demo/blocklist-refresh.php || true; done ) &
+
 exec nginx -g 'daemon off;'

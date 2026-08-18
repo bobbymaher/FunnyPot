@@ -1,0 +1,143 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Funnypot\App\Http;
+
+use Funnypot\App\Config\AppConfig;
+use Funnypot\RequestContext;
+
+/**
+ * Front-controller routing. Two route tables selected by FUNNYPOT_MODE: public (today's behaviour,
+ * honeypot forward + dashboard at /) and stealth (a fake corporate front, honeypot + dashboard on
+ * hidden paths). Both tables call the same honeypot dispatch and the same store, so there is no
+ * duplicated honeypot logic, only wiring.
+ */
+final class Router
+{
+    public function __construct(
+        private AppConfig $config,
+        private HoneypotController $honeypot,
+        private DashboardController $dashboard,
+        private CorporateController $corporate,
+    ) {
+    }
+
+    public function dispatch(RequestContext $ctx, string $clientIp, string $tokenVerdict): void
+    {
+        if ($this->config->mode === 'stealth') {
+            $this->stealth($ctx, $clientIp, $tokenVerdict);
+
+            return;
+        }
+        $this->public($ctx, $clientIp, $tokenVerdict);
+    }
+
+    /**
+     * Stealth: a fake corporate site out front, the operator dashboard on a hidden path, and the
+     * honeypot on everything else (so scanners still get their fakes). Hidden links from the
+     * corporate pages lead crawlers into the spider trap.
+     */
+    private function stealth(RequestContext $ctx, string $clientIp, string $tokenVerdict): void
+    {
+        $method = $ctx->method;
+        $path = $ctx->path;
+        $dash = rtrim($this->config->dashboardPath, '/');   // e.g. /__fp
+        $p = rtrim($path, '/');
+        if ($p === '') {
+            $p = '/';
+        }
+
+        // Operator dashboard on the hidden path (feed / admin / shell).
+        if ($p === $dash) {
+            if ($method === 'POST' && isset($_GET['admin'])) {
+                $this->dashboard->admin((string) $_GET['admin']);
+
+                return;
+            }
+            if ($method === 'GET' && isset($_GET['feed'])) {
+                $this->dashboard->feed();
+
+                return;
+            }
+            if ($method === 'GET') {
+                $this->dashboard->shell($this->config->dashboardPath);
+
+                return;
+            }
+        }
+
+        if ($method === 'GET' && $path === '/robots.txt') {
+            $this->honeypot->robots();
+
+            return;
+        }
+        if ($path === '/favicon.ico' && $this->honeypot->faviconSameOrigin()) {
+            return;
+        }
+
+        // Corporate disguise.
+        if ($method === 'GET' && $p === '/') {
+            $this->corporate->homepage();
+
+            return;
+        }
+        if ($p === '/login') {
+            $this->corporate->login($method, $clientIp);
+
+            return;
+        }
+
+        // A crawler that followed a hidden link lands in the trap.
+        if ($this->corporate->isTrapPath($path)) {
+            $this->corporate->trap($ctx, $clientIp, $method);
+
+            return;
+        }
+
+        // Everything else is honeypot surface (scanner probes, /honeypot, /.git, LFI, ...).
+        $this->honeypot->handle($ctx, $clientIp, $tokenVerdict);
+    }
+
+    private function public(RequestContext $ctx, string $clientIp, string $tokenVerdict): void
+    {
+        $method = $ctx->method;
+        $path = $ctx->path;
+
+        // Bait robots.txt.
+        if ($method === 'GET' && $path === '/robots.txt') {
+            $this->honeypot->robots();
+
+            return;
+        }
+
+        // Our own dashboard's favicon request (same-origin) is dropped; a scanner probing favicon
+        // directly falls through to be served + logged like any other path.
+        if ($path === '/favicon.ico' && $this->honeypot->faviconSameOrigin()) {
+            return;
+        }
+
+        // Password-gated admin actions (POST only). The public dashboard view stays open.
+        if ($method === 'POST' && $path === '/' && isset($_GET['admin'])) {
+            $this->dashboard->admin((string) $_GET['admin']);
+
+            return;
+        }
+
+        // Operator dashboard + its live feed. Only a clean "/" or a feed poll; an attack payload on
+        // the homepage, or any /index.php hit, falls through to the honeypot so a scanner never gets
+        // the dashboard back.
+        if ($method === 'GET' && $path === '/' && (isset($_GET['feed']) || $_GET === [])) {
+            if (isset($_GET['feed'])) {
+                $this->dashboard->feed();
+            } else {
+                $this->dashboard->shell();
+            }
+
+            return;
+        }
+
+        // Everything else is honeypot surface.
+        $this->honeypot->handle($ctx, $clientIp, $tokenVerdict);
+    }
+}
