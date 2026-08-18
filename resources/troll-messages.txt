@@ -1,0 +1,58 @@
+# Taunt-mode progress-bar labels for the SSH/telnet troll animation (FUNNYPOT_STYLE=taunt).
+# One message per line. Each completed bar advances to the next line, so the fake "installation"
+# keeps finding new things to do to the attacker's own machine. Blank lines and #-comments are
+# ignored. Add your own below — no code change, just redeploy (or point FUNNYPOT_TROLL_MESSAGES
+# at a mounted file to edit live). Keep each line short enough for one terminal row.
+#
+# Menacing but plainly fake: this is a turnabout troll, not a real threat.
+
+installing reverse shell
+uploading chrome_profile.dat
+exfiltrating ~/.ssh/id_rsa
+uploading keychain.db
+dumping saved browser passwords
+uploading password manager vault
+copying ~/.aws/credentials
+harvesting session cookies
+reading /etc/shadow
+exfiltrating gpg private keys
+uploading wallet.dat
+draining hot wallet
+sweeping seed phrases
+exfiltrating metamask vault
+enabling webcam
+capturing webcam frame
+enabling microphone
+recording keystrokes
+screenshotting desktop
+reading clipboard history
+tailing ~/.bash_history
+copying .npmrc and .pypirc
+uploading browser history
+exfiltrating 2fa backup codes
+dumping saved wifi passwords
+geolocating device
+resolving home address
+mapping local network
+pivoting to default gateway
+uploading contact list
+cross-referencing breach database
+installing rootkit
+installing bootloader
+loading kernel module
+adding cron persistence
+planting authorized_keys backdoor
+rotating your ssh keys
+disabling auditd
+patching /etc/hosts
+installing systemd service
+deleting user home directory
+encrypting home partition
+shredding documents folder
+encrypting photo library
+wiping /var/log
+overwriting master boot record
+scheduling disk wipe
+corrupting time machine backups
+publishing ip to pastebin
+uploading everything to c2

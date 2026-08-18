@@ -22,6 +22,12 @@ final class TrollStream
     /** Bright green / blue / red on a black background (matrix palette), rotated per frame. */
     private const COLORS = ["\e[40;92m", "\e[40;94m", "\e[40;91m"];
 
+    /** Fallback if the messages file is missing/empty; the full editable list lives in the file. */
+    private const DEFAULT_MESSAGES = ['installing reverse shell'];
+
+    /** @var string[]|null memoised progress-bar labels */
+    private static ?array $messages = null;
+
     private const SKULL = <<<'ART'
                           ud$$$**$$$$$$$bc.
                        u@**"        4$$$$$$$Nu
@@ -88,14 +94,44 @@ ART;
     }
 
     /**
+     * The progress-bar labels, one per bar. Loaded once from a plain text file so they are easy to
+     * edit without touching code — one message per line, blank lines and #-comments ignored. Set
+     * FUNNYPOT_TROLL_MESSAGES to a file path (e.g. a mounted volume, editable live), otherwise the
+     * shipped resources/troll-messages.txt is used; falls back to DEFAULT_MESSAGES if neither has a
+     * usable line.
+     *
+     * @return string[]
+     */
+    private static function messages(): array
+    {
+        if (self::$messages !== null) {
+            return self::$messages;
+        }
+        $path = getenv('FUNNYPOT_TROLL_MESSAGES') ?: dirname(__DIR__, 2) . '/resources/troll-messages.txt';
+        $lines = is_file($path) ? (array) @file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) : [];
+        $out = [];
+        foreach ($lines as $line) {
+            $line = trim((string) $line);
+            if ($line !== '' && $line[0] !== '#') {
+                $out[] = $line;
+            }
+        }
+
+        return self::$messages = $out !== [] ? $out : self::DEFAULT_MESSAGES;
+    }
+
+    /**
      * One animation frame (a full-screen redraw), CRLF-terminated for a raw terminal. Frame N picks
      * the colour (rotates per frame), the art (flips per progress cycle) and the bar position, so
      * the caller only has to keep a monotonic counter and push frames on a timer.
      */
     public static function frame(int $n): string
     {
+        $cycle = intdiv($n, self::STEPS);
+        $messages = self::messages();
+        $label = $messages[$cycle % count($messages)];
         $color = self::COLORS[$n % 3];
-        $art = intdiv($n, self::STEPS) % 2 === 0 ? self::SKULL : self::TROLL;
+        $art = $cycle % 2 === 0 ? self::SKULL : self::TROLL;
         $pct = (int) round(($n % self::STEPS) / (self::STEPS - 1) * 100);
         $filled = (int) round($pct / 100 * self::BAR_WIDTH);
         $bar = str_repeat('#', $filled) . str_repeat('.', self::BAR_WIDTH - $filled);
@@ -106,7 +142,7 @@ ART;
             $out .= $line . "\r\n";
         }
         $out .= "\e[40;97m\r\n";                            // white on black for the label
-        $out .= 'installing reverse shell' . $dots . "\r\n";
+        $out .= $label . $dots . "\r\n";
         $out .= $color . '[' . $bar . "]\e[40;97m " . $pct . "%\e[0m\r\n";
 
         return $out;
