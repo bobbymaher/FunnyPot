@@ -42,10 +42,10 @@ fi
 # (scripts/move-sshd-port.sh) so the honeypot can take port 22 — otherwise deploy locks out.
 SSH_PORT="${FUNNYPOT_SSH_PORT:-22}"
 SSH_OPTS=(-i "$KEY" -p "$SSH_PORT" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=20)
-# Known HTTP + alt-HTTP + app/panel ports (nginx) plus the TCP protocol-honeypot ports
-# (redis/ftp/smtp/telnet/memcached/ssh). Keep in sync with demo/nginx.conf + demo/entrypoint.sh
-# and open the matching inbound rules in the EC2 security group (the SG gates reachability).
-PORTS="21 23 25 80 81 88 443 591 2082 2083 2086 2087 2095 2096 2222 3000 3128 4433 4443 5000 5601 6379 7001 7070 7080 8000 8001 8008 8009 8080 8081 8082 8083 8088 8090 8161 8180 8443 8500 8834 8843 8880 8888 8983 9000 9080 9090 9200 9443 10000 10443 11211"
+# Known HTTP + alt-HTTP + app/panel ports (nginx) plus the TCP protocol-honeypot ports (mail/cache/
+# shell + databases + SCADA — see demo/entrypoint.sh). Keep in sync with demo/entrypoint.sh +
+# demo/Dockerfile and open the matching inbound rules in the EC2 security group (the SG gates reachability).
+PORTS="21 23 25 79 80 81 88 110 143 443 502 591 873 2082 2083 2086 2087 2095 2096 2181 2222 3000 3128 3306 3310 4433 4443 5000 5432 5601 5900 6379 7001 7070 7080 8000 8001 8008 8009 8080 8081 8082 8083 8088 8090 8161 8180 8443 8500 8834 8843 8880 8888 8983 9000 9080 9090 9200 9443 10000 10443 11211 27017 44818"
 
 echo "==> [1/4] build image locally ($PLATFORM)"
 docker build --platform "$PLATFORM" -f "$REPO_ROOT/demo/Dockerfile" -t funnypot "$REPO_ROOT"

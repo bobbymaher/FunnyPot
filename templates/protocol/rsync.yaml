@@ -1,0 +1,17 @@
+protocol: rsync
+listen: [873]
+severity: medium
+tags: [protocol, rsync, sync]
+title: Rsync Daemon
+framing: line
+# rsyncd Tier-1: greet with the real @RSYNCD banner, then reject the client's handshake line — a
+# genuine daemon only accepts a version reply matching its own protocol; anything else (a module
+# name, garbage) gets "protocol startup error" and the connection drops, same as a live server.
+banner: "@RSYNCD: 31.0\n"
+rules:
+  - match: { prefix: "@RSYNCD" }        # client echoing a version line back
+    send: "@ERROR: protocol startup error (bad session)\n"
+    close: true
+default:
+  send: "@ERROR: protocol startup error (bad session)\n"
+  close: true

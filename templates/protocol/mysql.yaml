@@ -1,0 +1,17 @@
+protocol: mysql
+listen: [3306]
+severity: medium
+tags: [protocol, mysql, database, db]
+title: MySQL Server
+framing: raw
+# Server speaks first: a real MySQL handshake-v10 packet is written on connect. It embeds the
+# auth-plugin name "mysql_native_password" (and the substring "mysql") that the detectors read.
+# Version 8.0.36 with a varied salt on purpose -- NOT Dionaea's fingerprinted 5.7.16 + "aaaaaaaa"
+# scramble, so scanners can't tag this as that known honeypot.
+# All bytes are <= 0x7F so the YAML \xNN transport keeps the packet byte-exact (bytes >= 0x80
+# UTF-8-expand and shift the frame); the capability-flag / charset fields the detectors ignore
+# carry low-byte values for that reason. Little-endian ints.
+banner: "\x4a\x00\x00\x00\x0a8.0.36\x00\x2d\x00\x00\x00\x3f\x1a\x55\x2c\x60\x14\x77\x08\x00\x0f\x02\x21\x02\x00\x08\x00\x15\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x41\x2d\x6b\x19\x52\x33\x7e\x11\x64\x28\x50\x46\x00mysql_native_password\x00"
+# No reply to post-greeting bytes: the greeting alone is what the detectors match, and a real ERR
+# packet needs the 0xFF marker byte (would UTF-8-expand). Inert: no auth, nothing stored.
+rules: []

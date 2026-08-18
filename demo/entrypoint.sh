@@ -48,12 +48,27 @@ php /app/demo/vulns-sync.php || true
 # the crypto handshake and drops attackers into the same fake shell as telnet. All log connections
 # + every command into the same store the dashboard reads. Disable with FUNNYPOT_PROTOCOLS=0.
 if [ "${FUNNYPOT_PROTOCOLS:-1}" != "0" ]; then
-    php /app/demo/listen.php redis     0.0.0.0:6379  &
-    php /app/demo/listen.php ftp       0.0.0.0:21    &
-    php /app/demo/listen.php smtp      0.0.0.0:25    &
-    php /app/demo/listen.php telnet    0.0.0.0:23    &
-    php /app/demo/listen.php memcached 0.0.0.0:11211 &
-    php /app/demo/listen.php ssh       0.0.0.0:2222  &
+    php /app/demo/listen.php redis      0.0.0.0:6379  &
+    php /app/demo/listen.php ftp        0.0.0.0:21    &
+    php /app/demo/listen.php smtp       0.0.0.0:25    &
+    php /app/demo/listen.php telnet     0.0.0.0:23    &
+    php /app/demo/listen.php memcached  0.0.0.0:11211 &
+    php /app/demo/listen.php ssh        0.0.0.0:2222  &
+    # mail + misc line services
+    php /app/demo/listen.php pop3       0.0.0.0:110   &
+    php /app/demo/listen.php imap       0.0.0.0:143   &
+    php /app/demo/listen.php finger     0.0.0.0:79    &
+    php /app/demo/listen.php vnc        0.0.0.0:5900  &
+    php /app/demo/listen.php rsync      0.0.0.0:873   &
+    php /app/demo/listen.php clamav     0.0.0.0:3310  &
+    php /app/demo/listen.php zookeeper  0.0.0.0:2181  &
+    # databases
+    php /app/demo/listen.php mysql      0.0.0.0:3306  &
+    php /app/demo/listen.php postgresql 0.0.0.0:5432  &
+    php /app/demo/listen.php mongodb    0.0.0.0:27017 &
+    # industrial control (SCADA)
+    php /app/demo/listen.php modbus     0.0.0.0:502   &
+    php /app/demo/listen.php ethernet-ip 0.0.0.0:44818 &
 fi
 
 exec nginx -g 'daemon off;'

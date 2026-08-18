@@ -1,0 +1,44 @@
+protocol: zookeeper
+listen: [2181]
+severity: medium
+tags: [protocol, zookeeper, exposure]
+title: Apache ZooKeeper
+framing: line
+# Client speaks first with a four-letter word (ruok/envi/stat/...); a real server answers and
+# closes the socket, so every rule here closes too.
+banner: ""
+rules:
+  - match: { prefix: "ruok" }
+    send: "imok\n"
+    close: true
+  - match: { prefix: "envi" }
+    send: |-
+      Environment:
+      zookeeper.version=3.8.3-5db9d4e3e05a5d2caa2ee9d8fb0a4419ee80979d, built on 2023-10-05 12:34 UTC
+      host.name=zk1
+      java.version=11.0.20
+      java.vendor=Eclipse Adoptium
+      java.home=/usr/lib/jvm/temurin-11-jdk
+      os.name=Linux
+      os.arch=amd64
+      os.version=5.15.0-91-generic
+      user.name=zookeeper
+      user.dir=/
+    close: true
+  - match: { prefix: "stat" }
+    send: |-
+      Zookeeper version: 3.8.3-5db9d4e3e05a5d2caa2ee9d8fb0a4419ee80979d, built on 2023-10-05 12:34 UTC
+      Clients:
+       /127.0.0.1:52344[0](queued=0,recved=1,sent=0)
+
+      Latency min/avg/max: 0/0/12
+      Received: 41
+      Sent: 40
+      Connections: 1
+      Outstanding: 0
+      Zxid: 0x100000042
+      Mode: standalone
+      Node count: 128
+    close: true
+default:
+  send: "This ZooKeeper instance is not currently serving requests.\n"

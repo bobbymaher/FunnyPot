@@ -818,6 +818,51 @@ return array (
     ),
     'source' => 'templates/route/30-xmlrpc.yaml',
   ),
+  'service-clamav' => 
+  array (
+    'id' => 'service-clamav',
+    'kind' => 'service',
+    'title' => 'ClamAV clamd',
+    'category' => 'service',
+    'cve' => '',
+    'severity' => 'medium',
+    'default' => true,
+    'ports' => 
+    array (
+      0 => 3310,
+    ),
+    'source' => 'templates/protocol/clamav.yaml',
+  ),
+  'service-ethernet-ip' => 
+  array (
+    'id' => 'service-ethernet-ip',
+    'kind' => 'service',
+    'title' => 'EtherNet/IP CIP (Allen-Bradley CompactLogix)',
+    'category' => 'service',
+    'cve' => '',
+    'severity' => 'medium',
+    'default' => true,
+    'ports' => 
+    array (
+      0 => 44818,
+    ),
+    'source' => 'templates/protocol/ethernet-ip.yaml',
+  ),
+  'service-finger' => 
+  array (
+    'id' => 'service-finger',
+    'kind' => 'service',
+    'title' => 'Finger User Info Service',
+    'category' => 'service',
+    'cve' => '',
+    'severity' => 'medium',
+    'default' => true,
+    'ports' => 
+    array (
+      0 => 79,
+    ),
+    'source' => 'templates/protocol/finger.yaml',
+  ),
   'service-ftp' => 
   array (
     'id' => 'service-ftp',
@@ -832,6 +877,21 @@ return array (
       0 => 21,
     ),
     'source' => 'templates/protocol/ftp.yaml',
+  ),
+  'service-imap' => 
+  array (
+    'id' => 'service-imap',
+    'kind' => 'service',
+    'title' => 'IMAP Mail Server',
+    'category' => 'service',
+    'cve' => '',
+    'severity' => 'medium',
+    'default' => true,
+    'ports' => 
+    array (
+      0 => 143,
+    ),
+    'source' => 'templates/protocol/imap.yaml',
   ),
   'service-memcached' => 
   array (
@@ -848,6 +908,81 @@ return array (
     ),
     'source' => 'templates/protocol/memcached.yaml',
   ),
+  'service-modbus' => 
+  array (
+    'id' => 'service-modbus',
+    'kind' => 'service',
+    'title' => 'Modbus TCP (Schneider Modicon M340)',
+    'category' => 'service',
+    'cve' => '',
+    'severity' => 'medium',
+    'default' => true,
+    'ports' => 
+    array (
+      0 => 502,
+    ),
+    'source' => 'templates/protocol/modbus.yaml',
+  ),
+  'service-mongodb' => 
+  array (
+    'id' => 'service-mongodb',
+    'kind' => 'service',
+    'title' => 'MongoDB Server',
+    'category' => 'service',
+    'cve' => '',
+    'severity' => 'medium',
+    'default' => true,
+    'ports' => 
+    array (
+      0 => 27017,
+    ),
+    'source' => 'templates/protocol/mongodb.yaml',
+  ),
+  'service-mysql' => 
+  array (
+    'id' => 'service-mysql',
+    'kind' => 'service',
+    'title' => 'MySQL Server',
+    'category' => 'service',
+    'cve' => '',
+    'severity' => 'medium',
+    'default' => true,
+    'ports' => 
+    array (
+      0 => 3306,
+    ),
+    'source' => 'templates/protocol/mysql.yaml',
+  ),
+  'service-pop3' => 
+  array (
+    'id' => 'service-pop3',
+    'kind' => 'service',
+    'title' => 'POP3 Mail Server',
+    'category' => 'service',
+    'cve' => '',
+    'severity' => 'medium',
+    'default' => true,
+    'ports' => 
+    array (
+      0 => 110,
+    ),
+    'source' => 'templates/protocol/pop3.yaml',
+  ),
+  'service-postgresql' => 
+  array (
+    'id' => 'service-postgresql',
+    'kind' => 'service',
+    'title' => 'PostgreSQL Server',
+    'category' => 'service',
+    'cve' => '',
+    'severity' => 'medium',
+    'default' => true,
+    'ports' => 
+    array (
+      0 => 5432,
+    ),
+    'source' => 'templates/protocol/postgresql.yaml',
+  ),
   'service-redis' => 
   array (
     'id' => 'service-redis',
@@ -862,6 +997,21 @@ return array (
       0 => 6379,
     ),
     'source' => 'templates/protocol/redis.yaml',
+  ),
+  'service-rsync' => 
+  array (
+    'id' => 'service-rsync',
+    'kind' => 'service',
+    'title' => 'Rsync Daemon',
+    'category' => 'service',
+    'cve' => '',
+    'severity' => 'medium',
+    'default' => true,
+    'ports' => 
+    array (
+      0 => 873,
+    ),
+    'source' => 'templates/protocol/rsync.yaml',
   ),
   'service-smtp' => 
   array (
@@ -907,5 +1057,35 @@ return array (
       0 => 23,
     ),
     'source' => 'templates/protocol/telnet.yaml',
+  ),
+  'service-vnc' => 
+  array (
+    'id' => 'service-vnc',
+    'kind' => 'service',
+    'title' => 'VNC (RFB) Remote Framebuffer',
+    'category' => 'service',
+    'cve' => '',
+    'severity' => 'medium',
+    'default' => true,
+    'ports' => 
+    array (
+      0 => 5900,
+    ),
+    'source' => 'templates/protocol/vnc.yaml',
+  ),
+  'service-zookeeper' => 
+  array (
+    'id' => 'service-zookeeper',
+    'kind' => 'service',
+    'title' => 'Apache ZooKeeper',
+    'category' => 'exposure',
+    'cve' => '',
+    'severity' => 'medium',
+    'default' => true,
+    'ports' => 
+    array (
+      0 => 2181,
+    ),
+    'source' => 'templates/protocol/zookeeper.yaml',
   ),
 );

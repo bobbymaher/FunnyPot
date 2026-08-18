@@ -1,0 +1,23 @@
+protocol: imap
+listen: [143]
+severity: medium
+tags: [protocol, imap, mail]
+title: IMAP Mail Server
+framing: line
+banner: "* OK IMAP4rev1 Service Ready\r\n"
+rules:
+  - match: { contains: "CAPABILITY" }
+    send: "* CAPABILITY IMAP4rev1 AUTH=PLAIN LOGIN-REFERRALS\r\n* OK CAPABILITY completed\r\n"
+  - match: { contains: "LOGIN" }        # accept-all login into a fake, empty mailbox
+    send: "* OK LOGIN completed\r\n"
+  - match: { contains: "SELECT" }
+    send: "* 0 EXISTS\r\n* 0 RECENT\r\n* OK [UIDVALIDITY 1] UIDs valid\r\n* OK [READ-WRITE] SELECT completed\r\n"
+  - match: { contains: "LIST" }
+    send: "* LIST () \"/\" \"INBOX\"\r\n* OK LIST completed\r\n"
+  - match: { contains: "NOOP" }
+    send: "* OK NOOP completed\r\n"
+  - match: { contains: "LOGOUT" }
+    send: "* BYE IMAP4rev1 Server logging out\r\n* OK LOGOUT completed\r\n"
+    close: true
+default:
+  send: "* BAD Command unrecognized\r\n"

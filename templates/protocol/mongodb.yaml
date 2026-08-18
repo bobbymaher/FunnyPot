@@ -1,0 +1,18 @@
+protocol: mongodb
+listen: [27017]
+severity: medium
+tags: [protocol, mongodb, mongo, database, db, nosql]
+title: MongoDB Server
+framing: raw
+banner: ""            # client sends a legacy OP_QUERY (admin.$cmd) first
+# One canned OP_REPLY (opcode 1, little-endian) answers any command (ismaster / getLog /
+# buildinfo). Its single BSON document carries the field names the three detectors read:
+# "localTime" (mongodb-detect), "totalLinesWritten" (mongodb-unauth), and "version" +
+# "maxBsonObjectSize" (mongodb-info-enum). Advertised version 7.0.30 sits OUTSIDE the
+# CVE-2025-14847 vulnerable ranges, so the generic enum templates fire but that specific-CVE
+# detector does not. All bytes are <= 0x7F so the YAML \xNN transport stays byte-exact (bytes
+# >= 0x80 UTF-8-expand and shift the frame); the whole reply is kept under 128 bytes so both the
+# wire messageLength and the BSON document length are single low bytes. Field values the
+# detectors ignore (localTime instant) carry arbitrary low-byte data. No command is dispatched.
+default:
+  send: "\x7e\x00\x00\x00\x2a\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x5a\x00\x00\x00\x02version\x00\x07\x00\x00\x007.0.30\x00\x10maxBsonObjectSize\x00\x00\x00\x00\x01\x09localTime\x00\x00\x50\x2c\x6f\x11\x00\x00\x00\x10totalLinesWritten\x00\x04\x00\x00\x00\x00"

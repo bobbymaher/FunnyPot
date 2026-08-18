@@ -1,0 +1,14 @@
+protocol: clamav
+listen: [3310]
+severity: medium
+tags: [protocol, clamav, antivirus]
+title: ClamAV clamd
+framing: raw
+banner: ""
+rules:
+  - match: { prefix: "VERSION" }
+    send: "ClamAV 0.103.2/26857/Sun Aug 16 08:00:00 2026\n"
+  - match: { prefix: "PING" }
+    send: "PONG\n"
+default:
+  send: "UNKNOWN COMMAND\n"

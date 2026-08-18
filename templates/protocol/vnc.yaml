@@ -1,0 +1,17 @@
+protocol: vnc
+listen: [5900]
+severity: medium
+tags: [protocol, vnc, remote-access]
+title: VNC (RFB) Remote Framebuffer
+framing: raw
+# RFB Tier-1: the protocol-version line is plaintext before any security-type negotiation, so
+# this catches banner-grabbers / version sweeps. We send a realistic banner, read whatever the
+# client sends back (logged as intel), and close — no security handshake, no framebuffer.
+banner: "RFB 003.008\n"
+rules:
+  - match: { regex: '^RFB' }        # the client's own version reply
+    send: ""
+    close: true
+default:
+  send: ""
+  close: true

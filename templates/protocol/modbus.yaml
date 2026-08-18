@@ -1,0 +1,21 @@
+protocol: modbus
+listen: [502]
+severity: medium
+tags: [protocol, modbus, ics, scada, plc, schneider, modicon]
+title: Modbus TCP (Schneider Modicon M340)
+framing: raw
+# Modbus is strict master/slave: the client speaks first, the device never banners.
+banner: ""
+# Emulate identity replies only — never act on writes; nothing is stored or actuated.
+# All response bytes are <= 0x7F so the YAML transport keeps them byte-exact (bytes >=
+# 0x80 would UTF-8-expand and shift the frame). The vendor/product ASCII the nuclei
+# matchers key on is embedded literally.
+rules:
+  # Read Device Identification: FC 0x2B / MEI 0x0E. Reply carries the standard object list
+  # (VendorName / ProductCode / Revision) -> nuclei matches "Schneider Electric".
+  - match: { contains: "\x2b\x0e" }
+    send: "\x00\x00\x00\x00\x00\x31\x00\x2b\x0e\x02\x03\x00\x00\x03\x00\x12Schneider Electric\x01\x0cBMX P34 2020\x02\x05V2.60"
+  # Schneider UMAS (proprietary FC 0x5A). Framing is vendor-private; reply carries the CPU
+  # model string -> nuclei matches "BMX P34" on the UMAS probe's response.
+  - match: { contains: "\x5a\x00" }
+    send: "\x00\x01\x00\x00\x00\x25\x00\x5a\x00\x00\x00\x00BMX P34 2020\x00Schneider Electric"

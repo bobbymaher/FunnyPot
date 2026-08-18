@@ -1,0 +1,14 @@
+protocol: finger
+listen: [79]
+severity: medium
+tags: [protocol, finger, discovery]
+title: Finger User Info Service
+framing: line
+# Client speaks first — a bare newline is the standard "list all users" query, so the banner is
+# silent and the empty-line rule below carries the whole reply.
+banner: ""
+rules:
+  - match: { equals: "" }
+    send: "Node        User        Action     Idle    Login Time\r\nweb01       root        login      00:12   Aug 18 09:14\r\nweb01       admin       idle       02:04   Aug 18 08:02\r\n"
+default:
+  send: "Node        User        Action     Idle    Login Time\r\nweb01       ?           no such user\r\n"

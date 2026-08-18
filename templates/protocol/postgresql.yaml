@@ -1,0 +1,18 @@
+protocol: postgresql
+listen: [5432]
+severity: medium
+tags: [protocol, postgresql, postgres, database, db]
+title: PostgreSQL Server
+framing: raw
+banner: ""            # client sends the StartupMessage first
+# One canned backend-message stream answers any client bytes (StartupMessage or a later Query).
+# It is a detection-bait composite of real Postgres message frames (big-endian ints), carrying
+# every substring the three detectors read: AuthenticationSASL advertising "SCRAM-SHA-256"
+# (pgsql-detect), ParameterStatus "client_encoding" + "integer_datetimes" (psql-user-enum), and
+# a RowDescription with the \l+ column aliases "Owner" / "Locale Provider" / "Access privileges"
+# (unauth-psql). Contains none of the detectors' negative words (HTTP, FTP, 500). All bytes are
+# <= 0x7F so the YAML \xNN transport stays byte-exact (the RowDescription type-modifier fields,
+# which no matcher reads, use low-byte values instead of the real -1 sentinel for that reason).
+# Nothing is authenticated, executed, or stored -- it is a static reply.
+default:
+  send: "R\x00\x00\x00\x17\x00\x00\x00\x0aSCRAM-SHA-256\x00\x00S\x00\x00\x00\x18server_version\x0016.2\x00S\x00\x00\x00\x19client_encoding\x00UTF8\x00S\x00\x00\x00\x19integer_datetimes\x00on\x00T\x00\x00\x00\x7b\x00\x04Name\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x19\x00\x40\x00\x00\x00\x00\x00\x00Owner\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x19\x00\x40\x00\x00\x00\x00\x00\x00Locale Provider\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x19\x00\x40\x00\x00\x00\x00\x00\x00Access privileges\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x19\x00\x40\x00\x00\x00\x00\x00\x00"

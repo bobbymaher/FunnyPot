@@ -1,0 +1,33 @@
+protocol: pop3
+listen: [110]
+severity: medium
+tags: [protocol, pop3, mail]
+title: POP3 Mail Server
+framing: line
+banner: "+OK POP3 server (Dovecot) ready.\r\n"
+rules:
+  - match: { prefix: "USER" }
+    send: "+OK\r\n"
+  - match: { prefix: "PASS" }        # accept-all login into a fake, empty mailbox
+    send: "+OK Logged in.\r\n"
+  - match: { prefix: "STAT" }
+    send: "+OK 0 0\r\n"
+  - match: { prefix: "LIST" }
+    send: "+OK 0 messages (0 octets)\r\n.\r\n"
+  - match: { prefix: "UIDL" }
+    send: "+OK\r\n.\r\n"
+  - match: { prefix: "RETR" }
+    send: "-ERR no such message\r\n"
+  - match: { prefix: "DELE" }
+    send: "-ERR no such message\r\n"
+  - match: { prefix: "CAPA" }
+    send: "+OK Capability list follows\r\nUSER\r\nUIDL\r\nTOP\r\n.\r\n"
+  - match: { prefix: "NOOP" }
+    send: "+OK\r\n"
+  - match: { prefix: "RSET" }
+    send: "+OK\r\n"
+  - match: { prefix: "QUIT" }
+    send: "+OK Logging out.\r\n"
+    close: true
+default:
+  send: "-ERR unknown command\r\n"
