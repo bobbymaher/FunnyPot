@@ -26,6 +26,9 @@ PLATFORM="${FUNNYPOT_PLATFORM:-linux/amd64}"
 # When set, the container mounts the host cert store + ACME webroot and serves real HTTPS
 # for this host once a cert exists. Empty = self-signed everywhere (unchanged behaviour).
 LE_DOMAIN="${LE_DOMAIN:-}"
+# Dashboard admin password (Emulations toggles / prune / clear / geoip). Default empty under
+# `set -u` so an unset value is not a fatal unbound-variable error; empty keeps admin disabled.
+ADMIN_PASSWORD="${FUNNYPOT_ADMIN_PASSWORD:-}"
 
 if [ -z "$HOST" ] || [ -z "$KEY" ]; then
     echo "error: FUNNYPOT_HOST and FUNNYPOT_KEY are not set." >&2
@@ -83,7 +86,7 @@ ssh "${SSH_OPTS[@]}" "$USER@$HOST" "
     sudo docker run -d --name funnypot --restart unless-stopped \
         -e FUNNYPOT_STYLE=realistic \
         -e FUNNYPOT_LE_DOMAIN='$LE_DOMAIN' \
-        -e FUNNYPOT_ADMIN_PASSWORD='$FUNNYPOT_ADMIN_PASSWORD' \
+        -e FUNNYPOT_ADMIN_PASSWORD='$ADMIN_PASSWORD' \
         -v \"\$DATA_DIR\":/app/demo/storage \
         -v \"\$ACME_DIR\":/var/acme:ro \
         -v /etc/letsencrypt:/etc/letsencrypt:ro \
