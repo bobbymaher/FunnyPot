@@ -87,12 +87,18 @@ fi
 sudo systemctl start docker 2>/dev/null || true
 REMOTE
 
-echo "==> [3/4] ship image (~40 MB gzipped) + load on server"
-docker save funnypot | gzip | ssh "${SSH_OPTS[@]}" "$USER@$HOST" 'gunzip | sudo docker load'
+# FUNNYPOT_SKIP_SHIP=1 reuses images already loaded on the host (e.g. after a load that succeeded but
+# a later step failed) — it re-runs only the container (re)start, without the slow image transfer.
+if [ "${FUNNYPOT_SKIP_SHIP:-0}" = "1" ]; then
+    echo "==> [3/4] skip ship (FUNNYPOT_SKIP_SHIP=1) — using images already on the host"
+else
+    echo "==> [3/4] ship image (~40 MB gzipped) + load on server"
+    docker save funnypot | gzip | ssh "${SSH_OPTS[@]}" "$USER@$HOST" 'gunzip | sudo docker load'
 
-if [ "$LLM_ON" = "1" ]; then
-    echo "==> [3b/4] ship funnypot-llm image (model baked in — larger; only re-sent when it changes)"
-    docker save funnypot-llm | gzip | ssh "${SSH_OPTS[@]}" "$USER@$HOST" 'gunzip | sudo docker load'
+    if [ "$LLM_ON" = "1" ]; then
+        echo "==> [3b/4] ship funnypot-llm image (model baked in — larger; only re-sent when it changes)"
+        docker save funnypot-llm | gzip | ssh "${SSH_OPTS[@]}" "$USER@$HOST" 'gunzip | sudo docker load'
+    fi
 fi
 
 echo "==> [4/4] (re)start container (logs persisted to ~/funnypot-data on the host)"
