@@ -17,6 +17,9 @@ final class TrollStream
     /** Frames per full progress-bar cycle; the art flips between the two faces each cycle. */
     private const STEPS = 24;
 
+    /** Opening full-red "alert" screen, held this many frames (~2s at the loop's frame interval). */
+    private const FLASH_FRAMES = 16;
+
     private const BAR_WIDTH = 32;
 
     /** Bright green / blue / red on a black background (matrix palette), rotated per frame. */
@@ -127,17 +130,29 @@ ART;
      */
     public static function frame(int $n): string
     {
-        $cycle = intdiv($n, self::STEPS);
+        // Open on a full red "alert" screen (bg red + clear fills the whole screen) for ~2s, with a
+        // beep, before the animation starts.
+        if ($n < self::FLASH_FRAMES) {
+            $bel = $n === 0 ? "\x07\x07\x07" : '';
+            return $bel . "\e[41m\e[2J\e[H\e[41;1;97m\r\n\r\n"
+                . "     ** UNAUTHORIZED ACCESS DETECTED **\r\n\r\n"
+                . "     securing session";
+        }
+        $m = $n - self::FLASH_FRAMES;                      // animation frame index (post red flash)
+
+        $cycle = intdiv($m, self::STEPS);
         $messages = self::messages();
         $label = $messages[$cycle % count($messages)];
-        $color = self::COLORS[$n % 3];
+        $color = self::COLORS[$m % 3];
         $art = $cycle % 2 === 0 ? self::SKULL : self::TROLL;
-        $pct = (int) round(($n % self::STEPS) / (self::STEPS - 1) * 100);
+        $pct = (int) round(($m % self::STEPS) / (self::STEPS - 1) * 100);
         $filled = (int) round($pct / 100 * self::BAR_WIDTH);
         $bar = str_repeat('#', $filled) . str_repeat('.', self::BAR_WIDTH - $filled);
-        $dots = str_repeat('.', 1 + ($n % 3));
+        $dots = str_repeat('.', 1 + ($m % 3));
+        // Beep at the top of every loop (each new bar / message) as an audible alert.
+        $bel = $m % self::STEPS === 0 ? "\x07\x07" : '';
 
-        $out = "\e[2J\e[H" . $color;                       // clear screen, home cursor, colour on black
+        $out = $bel . "\e[2J\e[H" . $color;                // clear screen, home cursor, colour on black
         foreach (explode("\n", $art) as $line) {
             $out .= $line . "\r\n";
         }
