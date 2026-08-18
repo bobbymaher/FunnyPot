@@ -23,12 +23,21 @@ final class SshServer
     private const IDLE_TIMEOUT = 120;   // seconds
     private const READ_CHUNK = 16384;
 
-    /** @param callable(array<string,mixed>):void $logger */
+    private int $rejectBudget;
+
+    /**
+     * @param callable(array<string,mixed>):void $logger
+     * @param int|null $rejectBudget Anti-fingerprint credential reject (see SshConnection). null ⇒
+     *                 read FUNNYPOT_SSH_REJECT_BUDGET, default 0 (accept-all — the honeypot welcomes
+     *                 every login).
+     */
     public function __construct(
         private HostKey $hostKey,
         private $logger,
-        private string $serverVersion = 'SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.10'
+        private string $serverVersion = 'SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.10',
+        ?int $rejectBudget = null
     ) {
+        $this->rejectBudget = $rejectBudget ?? (int) (getenv('FUNNYPOT_SSH_REJECT_BUDGET') ?: 0);
     }
 
     /** Bind and serve forever. $bind is "host:port", e.g. "0.0.0.0:2222". */
@@ -121,7 +130,8 @@ final class SshServer
             $this->hostKey,
             $session,
             fn (string $event, string $detail) => $this->log($ip, $port, $event, $detail),
-            $this->serverVersion
+            $this->serverVersion,
+            $this->rejectBudget
         );
         $conn->onConnect();
         $id = get_resource_id($sock);

@@ -9,16 +9,16 @@ use Funnypot\Protocol\Shell\FakeShell;
 
 /**
  * One attacker's SSH-2.0 session, driven purely by inbound bytes. It walks the transport handshake
- * (version exchange → KEXINIT → curve25519 kex → NEWKEYS), rejects the first few password guesses
- * so the login is not a giveaway 100%/first-try success, then accepts and opens a session channel
- * whose shell is the shared {@see FakeShell} — the very same fake shell telnet uses, so a real
- * `ssh` client lands at a believable prompt with every command logged.
+ * (version exchange → KEXINIT → curve25519 kex → NEWKEYS), accepts any login (a honeypot wants
+ * attackers in, not out), and opens a session channel whose shell is the shared {@see FakeShell} —
+ * the very same fake shell telnet uses, so a real `ssh` client lands at a believable prompt with
+ * every command logged. An optional anti-fingerprint reject (off by default; see the constructor)
+ * can refuse a seeded few early guesses to dodge the 100%-success tell.
  *
  * Honeypot invariants hold end to end: attacker input is decrypted and matched, never executed;
- * every credential and offered key is logged (the rejected guesses included — that intel is the
- * point), and auth always eventually "succeeds" so commands are captured; nothing is fetched. The
- * class is transport-only I/O — it never touches the socket. The caller feeds bytes in and drains
- * queued bytes out, so it composes with a non-blocking select loop.
+ * every credential and offered key is logged (rejected guesses included — that intel is the point);
+ * nothing is fetched. The class is transport-only I/O — it never touches the socket. The caller
+ * feeds bytes in and drains queued bytes out, so it composes with a non-blocking select loop.
  */
 final class SshConnection
 {
@@ -51,7 +51,6 @@ final class SshConnection
 
     private const MAX_IN = 262144;      // hard cap on unconsumed inbound bytes
     private const MAX_AUTH_TRIES = 24;  // bound credential spraying per connection
-    private const AUTH_REJECT_BUDGET = 2; // ceiling for the seeded fractional reject (K in {0..2})
     private const INITIAL_WINDOW = 1 << 21;
     private const MAX_PACKET = 32768;
 
@@ -88,18 +87,19 @@ final class SshConnection
 
     /**
      * @param callable(string,string):void $logger           ($event, $detail)
-     * @param int                          $authRejectBudget  Ceiling for the seeded fractional
-     *        reject. K in {0..budget} is derived from the attacker seed; that many password guesses
-     *        are refused with USERAUTH_FAILURE before auth is accepted, so a given source sees a
-     *        stable-but-not-first-try success (a real box where early guesses fail) instead of a
-     *        100% tell. 0 selects pure accept-all.
+     * @param int                          $authRejectBudget  Opt-in anti-fingerprint reject. Default
+     *        0 = pure accept-all: every login succeeds first try, which is what a honeypot wants —
+     *        let attackers in and watch them. Set > 0 to trade some welcome for evading the
+     *        ssh-default-logins "100% success" tell: K in {0..budget}, seeded per attacker, is the
+     *        number of early password guesses refused (real "Permission denied, please try again")
+     *        before auth is accepted. Every attempt, rejected ones included, is still logged.
      */
     public function __construct(
         private HostKey $hostKey,
         private ProtocolSession $session,
         private $logger,
         private string $serverVersion = 'SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.10',
-        int $authRejectBudget = self::AUTH_REJECT_BUDGET
+        int $authRejectBudget = 0
     ) {
         $this->transport = new Transport();
         // Seed the reject count per attacker so a source sees a stable K, not a per-attempt coin
