@@ -9,12 +9,14 @@ use Funnypot\Protocol\Shell\FakeShell;
 
 /**
  * One attacker's SSH-2.0 session, driven purely by inbound bytes. It walks the transport handshake
- * (version exchange → KEXINIT → curve25519 kex → NEWKEYS), then accepts any authentication and
- * opens a session channel whose shell is the shared {@see FakeShell} — the very same fake shell
- * telnet uses, so a real `ssh` client lands at a believable prompt with every command logged.
+ * (version exchange → KEXINIT → curve25519 kex → NEWKEYS), rejects the first few password guesses
+ * so the login is not a giveaway 100%/first-try success, then accepts and opens a session channel
+ * whose shell is the shared {@see FakeShell} — the very same fake shell telnet uses, so a real
+ * `ssh` client lands at a believable prompt with every command logged.
  *
  * Honeypot invariants hold end to end: attacker input is decrypted and matched, never executed;
- * auth always "succeeds" so credentials and offered keys are captured; nothing is fetched. The
+ * every credential and offered key is logged (the rejected guesses included — that intel is the
+ * point), and auth always eventually "succeeds" so commands are captured; nothing is fetched. The
  * class is transport-only I/O — it never touches the socket. The caller feeds bytes in and drains
  * queued bytes out, so it composes with a non-blocking select loop.
  */
@@ -47,8 +49,9 @@ final class SshConnection
     private const MSG_CHANNEL_SUCCESS = 99;
     private const MSG_CHANNEL_FAILURE = 100;
 
-    private const MAX_IN = 262144;     // hard cap on unconsumed inbound bytes
-    private const MAX_AUTH_TRIES = 24; // bound credential spraying per connection
+    private const MAX_IN = 262144;      // hard cap on unconsumed inbound bytes
+    private const MAX_AUTH_TRIES = 24;  // bound credential spraying per connection
+    private const AUTH_REJECT_BUDGET = 2; // ceiling for the seeded fractional reject (K in {0..2})
     private const INITIAL_WINDOW = 1 << 21;
     private const MAX_PACKET = 32768;
 
@@ -71,6 +74,8 @@ final class SshConnection
 
     private bool $authed = false;
     private int $authTries = 0;
+    private int $passwordTries = 0;
+    private int $authRejectK;          // password guesses to reject before accepting; seeded per attacker
 
     private ?int $channel = null;      // client's channel id, once a session is open
     private int $clientWindow = 0;
@@ -81,14 +86,29 @@ final class SshConnection
     private bool $swallowLf = false;
     private ?FakeShell $shell = null;
 
-    /** @param callable(string,string):void $logger  ($event, $detail) */
+    /**
+     * @param callable(string,string):void $logger           ($event, $detail)
+     * @param int                          $authRejectBudget  Ceiling for the seeded fractional
+     *        reject. K in {0..budget} is derived from the attacker seed; that many password guesses
+     *        are refused with USERAUTH_FAILURE before auth is accepted, so a given source sees a
+     *        stable-but-not-first-try success (a real box where early guesses fail) instead of a
+     *        100% tell. 0 selects pure accept-all.
+     */
     public function __construct(
         private HostKey $hostKey,
         private ProtocolSession $session,
         private $logger,
-        private string $serverVersion = 'SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.10'
+        private string $serverVersion = 'SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.10',
+        int $authRejectBudget = self::AUTH_REJECT_BUDGET
     ) {
         $this->transport = new Transport();
+        // Seed the reject count per attacker so a source sees a stable K, not a per-attempt coin
+        // flip. Timing realism (a human-like pause before the verdict) is intentionally not done
+        // here: this engine is one shared non-blocking select loop, so any sleep would stall every
+        // other connection — that belongs in a future per-connection timer, not a blocking wait.
+        $this->authRejectK = $authRejectBudget > 0
+            ? abs($this->session->seed) % ($authRejectBudget + 1)
+            : 0;
     }
 
     /** Queue the greeting: identification line followed immediately by our KEXINIT. */
@@ -332,6 +352,14 @@ final class SshConnection
             $r->bool();              // FALSE (not a change-password request)
             $pass = $r->string();
             $this->log('login', $user . ' / ' . $pass);
+            if (++$this->passwordTries <= $this->authRejectK) {
+                // Refuse early guesses down the real "Permission denied, please try again" path:
+                // can-continue = password, so a live client re-prompts. The credential is already
+                // logged above, and a brute-forcer's later attempts fall through to acceptAuth.
+                $this->authFailure(['password']);
+
+                return;
+            }
             $this->acceptAuth($user);
 
             return;

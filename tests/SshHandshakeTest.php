@@ -82,7 +82,62 @@ final class SshHandshakeTest extends TestCase
         self::assertTrue((bool) preg_grep('/^login:root key ssh-ed25519 SHA256:/', $log));
     }
 
+    /**
+     * With a reject budget, the first K password guesses draw USERAUTH_FAILURE (the real
+     * "Permission denied, please try again" path, can-continue = password) and a later attempt
+     * succeeds — so the login is no longer a 100%/first-try honeypot tell. Every guess, rejected
+     * ones included, is still logged as captured intel.
+     */
+    public function test_seeded_fractional_reject_then_accept_and_logs_every_attempt(): void
+    {
+        $log = [];
+        // seed 2, budget 2 -> K = abs(2) % 3 = 2: the first two guesses are refused, the third lands.
+        [$server, $client, $buffer] = $this->handshake($log, 2, 2);
+
+        $client->send($server, (new Buf())->byte(5)->string('ssh-userauth')->get()); // SERVICE_REQUEST
+        self::assertSame(6, $this->firstMsg($client, $server, $buffer));              // SERVICE_ACCEPT
+
+        foreach (['first-guess', 'second-guess'] as $pass) {
+            $client->send($server, $this->passwordAuth('root', $pass));
+            $reply = $this->drain($client, $server, $buffer);
+            self::assertNotEmpty($reply);
+            self::assertSame(51, ord($reply[0][0]), "guess '{$pass}' is rejected"); // USERAUTH_FAILURE
+            $rr = new Reader($reply[0]);
+            $rr->byte();
+            self::assertContains('password', $rr->nameList(), 'client is re-prompted for password');
+        }
+
+        // The next attempt is accepted — a persistent brute-forcer still gets in and gets logged.
+        $client->send($server, $this->passwordAuth('root', 'third-guess'));
+        self::assertSame(52, $this->firstMsg($client, $server, $buffer));             // USERAUTH_SUCCESS
+
+        self::assertContains('login:root / first-guess', $log, 'rejected guess #1 logged');
+        self::assertContains('login:root / second-guess', $log, 'rejected guess #2 logged');
+        self::assertContains('login:root / third-guess', $log, 'accepted guess logged');
+    }
+
+    /** Budget 0 keeps the pure accept-all behaviour: the first password attempt succeeds outright. */
+    public function test_zero_budget_is_immediate_accept_all(): void
+    {
+        $log = [];
+        [$server, $client, $buffer] = $this->handshake($log, 12345, 0);
+
+        $client->send($server, (new Buf())->byte(5)->string('ssh-userauth')->get());
+        self::assertSame(6, $this->firstMsg($client, $server, $buffer));              // SERVICE_ACCEPT
+
+        $client->send($server, $this->passwordAuth('admin', 'first-try'));
+        self::assertSame(52, $this->firstMsg($client, $server, $buffer));             // USERAUTH_SUCCESS
+        self::assertContains('login:admin / first-try', $log);
+    }
+
     // --- helpers: a minimal in-memory SSH client sharing the server's transport primitives ---
+
+    /** Build a password USERAUTH_REQUEST payload. */
+    private function passwordAuth(string $user, string $pass): string
+    {
+        return (new Buf())->byte(50)
+            ->string($user)->string('ssh-connection')->string('password')->bool(false)->string($pass)->get();
+    }
 
     /**
      * Drive version exchange + curve25519 kex + NEWKEYS, leaving both sides encrypted and ready
@@ -91,15 +146,16 @@ final class SshHandshakeTest extends TestCase
      * @param array<int,string> $log
      * @return array{0:SshConnection,1:SshTestClient,2:string}
      */
-    private function handshake(array &$log): array
+    private function handshake(array &$log, int $seed = 99, int $authRejectBudget = 0): array
     {
         $server = new SshConnection(
             $this->hostKey(),
-            new ProtocolSession(99),
+            new ProtocolSession($seed),
             static function (string $event, string $detail) use (&$log): void {
                 $log[] = $event . ':' . $detail;
             },
-            'SSH-2.0-OpenSSH_8.9p1'
+            'SSH-2.0-OpenSSH_8.9p1',
+            $authRejectBudget
         );
         $server->onConnect();
 
