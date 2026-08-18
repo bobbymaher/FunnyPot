@@ -10,11 +10,28 @@ declare(strict_types=1);
 require __DIR__ . '/../vendor/autoload.php';
 
 use Funnypot\App\Config\AppConfig;
+use Funnypot\App\Storage\LlmFakeCache;
 use Funnypot\App\Storage\SqliteHitStore;
 
 $config = AppConfig::fromEnv(__DIR__);
+
+// LLM cache upkeep runs whenever the responder is on: cap the cache by size (0 = unbounded) and
+// reap in-flight locks a crashed generation would otherwise leave held. Independent of hit retention.
+if ($config->llmEnabled && is_file($config->llmCacheDb)) {
+    try {
+        $cache = new LlmFakeCache($config->llmCacheDb);
+        $stale = $cache->reapInflight();
+        $evicted = $config->llmCacheMaxBytes > 0 ? $cache->retainBytes($config->llmCacheMaxBytes) : 0;
+        if ($stale > 0 || $evicted > 0) {
+            fwrite(STDERR, sprintf("retention: llm cache reaped %d locks, evicted %d entries\n", $stale, $evicted));
+        }
+    } catch (Throwable $e) {
+        fwrite(STDERR, 'retention (llm): ' . $e->getMessage() . "\n");
+    }
+}
+
 if ($config->retainDays <= 0 && $config->retainGb <= 0) {
-    exit(0); // unbounded: nothing to do
+    exit(0); // hit store unbounded: nothing more to do
 }
 
 try {

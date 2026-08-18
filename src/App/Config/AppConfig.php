@@ -45,6 +45,17 @@ final class AppConfig
         public int $abuseIpdbDailyCap,
         /** Report each attacker IP at most once per this many hours (AbuseIPDB dislikes duplicates). */
         public int $abuseIpdbDedupHours,
+        // LLM-generated fake responses (opt-in; the funnypot-llm sidecar).
+        public bool $llmEnabled,
+        public string $llmUrl,
+        public int $llmTimeoutMs,
+        public int $llmNPredict,
+        public string $llmCacheDb,
+        public int $llmCacheMaxBytes,
+        public int $llmMaxConcurrent,
+        public string $llmPromptVersion,
+        public int $llmBreakerThreshold,
+        public int $llmBreakerCooldownS,
     ) {
     }
 
@@ -93,6 +104,16 @@ final class AppConfig
             selfIps: array_values(array_filter(array_map('trim', explode(',', $str('FUNNYPOT_SELF_IPS', ''))))),
             abuseIpdbDailyCap: max(1, (int) $str('FUNNYPOT_ABUSEIPDB_DAILY_CAP', '1000')),
             abuseIpdbDedupHours: max(1, (int) $str('FUNNYPOT_ABUSEIPDB_DEDUP_HOURS', '24')),
+            llmEnabled: in_array(strtolower((string) getenv('FUNNYPOT_LLM')), ['1', 'on', 'true', 'yes'], true),
+            llmUrl: $str('FUNNYPOT_LLM_URL', 'http://funnypot-llm:8080/completion'),
+            llmTimeoutMs: max(200, (int) $str('FUNNYPOT_LLM_TIMEOUT_MS', '1500')),
+            llmNPredict: max(64, (int) $str('FUNNYPOT_LLM_N_PREDICT', '320')),
+            llmCacheDb: $str('FUNNYPOT_LLM_CACHE_DB', $store . '/llm_cache.sqlite'),
+            llmCacheMaxBytes: (int) $str('FUNNYPOT_LLM_CACHE_MAX_BYTES', '0'),
+            llmMaxConcurrent: max(1, (int) $str('FUNNYPOT_LLM_MAX_CONCURRENT', '4')),
+            llmPromptVersion: $str('FUNNYPOT_LLM_PROMPT_VERSION', 'v1'),
+            llmBreakerThreshold: max(1, (int) $str('FUNNYPOT_LLM_BREAKER_THRESHOLD', '5')),
+            llmBreakerCooldownS: max(1, (int) $str('FUNNYPOT_LLM_BREAKER_COOLDOWN_S', '30')),
         );
     }
 }

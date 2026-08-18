@@ -237,6 +237,21 @@ final class SqliteHitStoreTest extends TestCase
         self::assertSame('6.6.6.6', $known[0]['ip']);
     }
 
+    public function test_probe_velocity(): void
+    {
+        $store = new SqliteHitStore($this->dbPath());
+        foreach (['/a', '/b', '/c', '/a'] as $p) {   // 3 distinct recent paths (/a repeated)
+            $store->append(['ts' => gmdate('c'), 'ip' => '9.9.9.9', 'method' => 'GET', 'path' => $p]);
+        }
+        $store->append(['ts' => gmdate('c', time() - 3600), 'ip' => '9.9.9.9', 'method' => 'GET', 'path' => '/old']);
+        $store->append(['ts' => gmdate('c'), 'ip' => '1.1.1.1', 'method' => 'GET', 'path' => '/x']);   // other IP
+
+        $v = $store->probeVelocity('9.9.9.9');
+        self::assertSame(3, $v['recent']);       // distinct /a /b /c in the last 60s
+        self::assertSame(3, $v['extended']);     // the 1h-old /old is outside the 10min window
+        self::assertSame(['recent' => 0, 'extended' => 0], $store->probeVelocity('unknown'));
+    }
+
     public function test_binary_bytes_are_sanitised_not_dropped(): void
     {
         $store = new SqliteHitStore($this->dbPath());

@@ -280,6 +280,43 @@ final class SqliteHitStore implements HitStore
         return $pageCount * $pageSize;
     }
 
+    public function probeVelocity(string $ip): array
+    {
+        if ($ip === '' || $ip === 'unknown') {
+            return ['recent' => 0, 'extended' => 0];
+        }
+        $now = time();
+        $st = $this->db->prepare(
+            'SELECT COUNT(DISTINCT CASE WHEN ts >= :c60 THEN path END) recent, COUNT(DISTINCT path) extended
+             FROM hits WHERE ip = :ip AND ts >= :c600'
+        );
+        $st->execute([':ip' => $ip, ':c60' => gmdate('c', $now - 60), ':c600' => gmdate('c', $now - 600)]);
+        $row = $st->fetch(PDO::FETCH_ASSOC) ?: [];
+
+        return ['recent' => (int) ($row['recent'] ?? 0), 'extended' => (int) ($row['extended'] ?? 0)];
+    }
+
+    public function flagBulkScan(string $ip, int $hours): void
+    {
+        if ($ip === '' || $ip === 'unknown') {
+            return;
+        }
+        $this->db->prepare('INSERT OR REPLACE INTO bulk_scan (ip, until) VALUES (:ip, :until)')
+            ->execute([':ip' => $ip, ':until' => gmdate('c', time() + max(1, $hours) * 3600)]);
+    }
+
+    public function isBulkFlagged(string $ip): bool
+    {
+        if ($ip === '' || $ip === 'unknown') {
+            return false;
+        }
+        $st = $this->db->prepare('SELECT until FROM bulk_scan WHERE ip = :ip');
+        $st->execute([':ip' => $ip]);
+        $until = $st->fetchColumn();
+
+        return $until !== false && (strtotime((string) $until) ?: 0) > time();
+    }
+
     // --- SQLite plumbing ---
 
     private function open(string $path): PDO
@@ -321,6 +358,10 @@ final class SqliteHitStore implements HitStore
         $db->exec('CREATE INDEX IF NOT EXISTS idx_hits_ip ON hits(ip)');
         $db->exec('CREATE INDEX IF NOT EXISTS idx_hits_ts ON hits(ts)');
         $db->exec('CREATE INDEX IF NOT EXISTS idx_hits_known ON hits(known_attacker)');
+        $db->exec('CREATE INDEX IF NOT EXISTS idx_hits_ip_ts ON hits(ip, ts)');   // covers the LLM-gate velocity query
+        // Persistent bulk-scan pin: an IP that trips the velocity gate stays pinned to plain-404 for a
+        // cooldown even after it goes quiet, so it cannot burst then slow-probe for fakes.
+        $db->exec('CREATE TABLE IF NOT EXISTS bulk_scan (ip TEXT PRIMARY KEY, until TEXT NOT NULL)');
 
         // One-time conversion of a legacy db created before incremental auto-vacuum so size-based
         // retention can reclaim disk on it too. Cheap and self-limiting: once converted, auto_vacuum

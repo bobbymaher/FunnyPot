@@ -19,6 +19,15 @@ use Funnypot\App\Http\CorporateController;
 use Funnypot\App\Http\DashboardController;
 use Funnypot\App\Http\HoneypotController;
 use Funnypot\App\Http\Router;
+use Funnypot\App\Llm\CircuitBreaker;
+use Funnypot\App\Llm\LlmClient;
+use Funnypot\App\Llm\LlmFakeResponder;
+use Funnypot\App\Llm\LlmOutputSanitizer;
+use Funnypot\App\Llm\LlmPromptBuilder;
+use Funnypot\App\Llm\ProbeClassifier;
+use Funnypot\App\Llm\ProbeGate;
+use Funnypot\App\Llm\VelocityTracker;
+use Funnypot\App\Storage\LlmFakeCache;
 use Funnypot\App\Storage\SqliteHitStore;
 use Funnypot\App\ThreatIntel\AbuseIpdb;
 use Funnypot\App\ThreatIntel\Blocklist;
@@ -56,7 +65,25 @@ $abuse = ($config->abuseIpdbReport && $config->abuseIpdbKey !== '')
     ? new AbuseIpdb($config->abuseIpdbKey, $config->intelDbPath, $config->selfIps, $config->abuseIpdbDailyCap, $config->abuseIpdbDedupHours)
     : null;
 
-$honeypot = new HoneypotController($store, $geo, $config, __DIR__ . '/decoys', $blocklist, $abuse);
+// LLM-generated fake responses for plausible unknown paths (opt-in, needs the funnypot-llm sidecar).
+// Every failure/decline falls through to the plain 404, so this only ever upgrades a 404.
+$llmFakes = null;
+if ($config->llmEnabled) {
+    $breaker = new CircuitBreaker($config->llmCacheDb, $config->llmBreakerThreshold, $config->llmBreakerCooldownS);
+    $llmFakes = new LlmFakeResponder(
+        new ProbeGate(new ProbeClassifier(), new VelocityTracker(), $store),
+        new LlmFakeCache($config->llmCacheDb),
+        new LlmClient($config->llmUrl, $config->llmTimeoutMs, $config->llmNPredict, $breaker),
+        new LlmOutputSanitizer(),
+        $store,
+        new LlmPromptBuilder(),
+        (string) @file_get_contents(dirname(__DIR__) . '/resources/llm/html.gbnf'),
+        $config->llmPromptVersion,
+        $config->llmMaxConcurrent,
+    );
+}
+
+$honeypot = new HoneypotController($store, $geo, $config, __DIR__ . '/decoys', $blocklist, $abuse, $llmFakes);
 $dashboard = new DashboardController($store, $geo, $config, __DIR__ . '/assets');
 $corporate = new CorporateController($store, $geo, $config, __DIR__ . '/assets', $blocklist);
 (new Router($config, $honeypot, $dashboard, $corporate))->dispatch($context, $clientIp, $tokenVerdict);

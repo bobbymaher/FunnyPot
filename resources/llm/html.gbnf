@@ -1,0 +1,20 @@
+# GBNF grammar for the honeypot LLM. Constrains llama-server generation to a bounded HTML document,
+# so a markdown fence, a "Sure! " preamble, a text refusal, <script>/<iframe>, or an unterminated
+# document are structurally unreachable (the first legal bytes are "<!doctype html>", and the tag /
+# attribute sets have no dangerous member). Semantics are still checked by LlmOutputSanitizer.
+root      ::= "<!doctype html>" ws "<html" attrs ">" body "</html>"
+body      ::= (safechar | tag){1,3000}
+tag       ::= "<" tagname attrs ">" | "</" tagname ">" | "<" tagname attrs "/>"
+tagname   ::= "html" | "head" | "title" | "meta" | "body" | "div" | "span" | "p" | "section"
+            | "header" | "footer" | "nav" | "main" | "h1" | "h2" | "h3" | "h4" | "ul" | "ol" | "li"
+            | "a" | "form" | "fieldset" | "legend" | "label" | "input" | "select" | "option"
+            | "textarea" | "button" | "table" | "thead" | "tbody" | "tr" | "td" | "th"
+            | "br" | "hr" | "b" | "i" | "strong" | "em" | "small" | "center" | "pre" | "code"
+attrs     ::= (ws attr){0,8}
+attr      ::= attrname "=\"" attrval "\""
+attrname  ::= "class" | "id" | "name" | "type" | "value" | "method" | "action" | "placeholder"
+            | "for" | "href" | "colspan" | "rowspan" | "style" | "charset" | "content" | "lang"
+            | "rows" | "cols" | "maxlength" | "required" | "disabled" | "checked" | "selected"
+attrval   ::= [a-zA-Z0-9 _\-./?=&:#;%(){}',+]{0,160}
+safechar  ::= [^<>]
+ws        ::= [ \t\n]*

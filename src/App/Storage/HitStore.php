@@ -59,4 +59,18 @@ interface HitStore
 
     /** Backfill from the JSON-lines export log (the migration source). Returns rows imported. */
     public function import(): int;
+
+    /**
+     * How many distinct paths this IP has probed recently — the signal for the LLM gate's per-IP
+     * velocity check (a bulk dirbuster sweeps many distinct paths fast).
+     *
+     * @return array{recent:int,extended:int} distinct paths in the last 60s and last 10min
+     */
+    public function probeVelocity(string $ip): array;
+
+    /** Pin an IP to plain-404-only (the LLM gate's bulk-scan cooldown) for $hours. */
+    public function flagBulkScan(string $ip, int $hours): void;
+
+    /** Is this IP currently pinned as a bulk scanner? */
+    public function isBulkFlagged(string $ip): bool;
 }

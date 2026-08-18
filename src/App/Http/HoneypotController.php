@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Funnypot\App\Http;
 
 use Funnypot\App\Config\AppConfig;
+use Funnypot\App\Llm\LlmFakeResponder;
 use Funnypot\App\Storage\HitStore;
 use Funnypot\App\ThreatIntel\AbuseIpdb;
 use Funnypot\App\ThreatIntel\Blocklist;
@@ -30,7 +31,18 @@ final class HoneypotController
         private string $decoyDir,
         private ?Blocklist $blocklist = null,
         private ?AbuseIpdb $abuse = null,
+        private ?LlmFakeResponder $llmFakes = null,
     ) {
+    }
+
+    /** A small delay applied to the LLM fake and the plain 404 so their timing matches a served
+     *  template fake (which already delays inside the engine), leaving at most one timing bucket. */
+    private function serveDelay(): void
+    {
+        $ms = $this->config->latencyMs + ($this->config->jitterMs > 0 ? random_int(0, $this->config->jitterMs) : 0);
+        if ($ms > 0) {
+            usleep($ms * 1000);
+        }
     }
 
     /** True if the client IP is a known attacker (present in the intel blocklist). */
@@ -132,12 +144,20 @@ final class HoneypotController
         if ($response !== null) {
             ResponseEmitter::emit($response);
         } elseif (!$this->serveDecoyArchive($context, $clientIp)) {
-            // Non-detection (or matched-but-declined): a believable server 404, not a constant string.
-            http_response_code(404);
-            header('Content-Type: text/html');
-            echo "<html>\r\n<head><title>404 Not Found</title></head>\r\n"
-                . "<body>\r\n<center><h1>404 Not Found</h1></center>\r\n"
-                . "<hr><center>nginx</center>\r\n</body>\r\n</html>\r\n";
+            // A plausible unknown path may get an LLM-generated fake; everything else (declined,
+            // failed, or the responder being off) falls through to the believable plain 404.
+            $llm = $this->llmFakes?->respond($context, $clientIp);
+            $this->serveDelay();
+            if ($llm !== null) {
+                ResponseEmitter::emit($llm);
+            } else {
+                // Non-detection (or matched-but-declined): a believable server 404, not a constant string.
+                http_response_code(404);
+                header('Content-Type: text/html');
+                echo "<html>\r\n<head><title>404 Not Found</title></head>\r\n"
+                    . "<body>\r\n<center><h1>404 Not Found</h1></center>\r\n"
+                    . "<hr><center>nginx</center>\r\n</body>\r\n</html>\r\n";
+            }
         }
 
         // Queue an AbuseIPDB report for the matched attacker (a fast local write; the drain worker
