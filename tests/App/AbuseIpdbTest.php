@@ -8,9 +8,9 @@ use Funnypot\App\ThreatIntel\AbuseIpdb;
 use PHPUnit\Framework\TestCase;
 
 /**
- * AbuseIPDB reporting guards. The overriding property is the self-exclude invariant: the honeypot
- * must never report its own IP, and must not report at all when its own IP is unknown. A recording
- * sender proves whether an HTTP call would actually have gone out.
+ * AbuseIPDB reporting: enqueue (guarded, local) then drain (the HTTP POSTs). The overriding property
+ * is the self-exclude invariant; the throttle is one report per IP per dedup window. A recording
+ * sender proves what would actually have gone out.
  */
 final class AbuseIpdbTest extends TestCase
 {
@@ -42,84 +42,110 @@ final class AbuseIpdbTest extends TestCase
         return $p;
     }
 
-    /** @param list<string> $calls */
-    private function recorder(array &$calls): callable
+    /** @param list<array{ip:string,cats:string}> $calls */
+    private function recorder(array &$calls, int $status = 200): callable
     {
-        return static function (string $url, array $headers, string $body) use (&$calls): array {
-            $calls[] = $body;
+        return static function (string $url, array $headers, string $body) use (&$calls, $status): array {
+            parse_str($body, $f);
+            $calls[] = ['ip' => (string) ($f['ip'] ?? ''), 'cats' => (string) ($f['categories'] ?? '')];
 
-            return ['status' => 200, 'body' => '{}'];
+            return ['status' => $status, 'body' => '{}'];
         };
     }
 
-    public function test_reports_a_public_attacker(): void
+    private function make(string $db, array $selfIps, int $cap = 1000, int $dedupH = 24, ?callable $sender = null): AbuseIpdb
     {
-        $calls = [];
-        $a = new AbuseIpdb('KEY', $this->dbPath(), ['203.0.113.9'], 1000, 6, $this->recorder($calls));
-        $r = $a->report('45.9.148.1', 'attack');
-
-        self::assertTrue($r['reported']);
-        self::assertCount(1, $calls);
-        self::assertStringContainsString('ip=45.9.148.1', $calls[0]);
+        return new AbuseIpdb('KEY', $db, $selfIps, $cap, $dedupH, $sender);
     }
 
-    public function test_never_reports_self_no_http_call(): void
+    public function test_enqueue_then_drain_sends_with_port_url_categories(): void
     {
         $calls = [];
-        $a = new AbuseIpdb('KEY', $this->dbPath(), ['45.9.148.1'], 1000, 6, $this->recorder($calls));
-        $r = $a->report('45.9.148.1', 'x');
+        $a = $this->make($this->dbPath(), ['203.0.113.9'], 1000, 24, $this->recorder($calls));
 
-        self::assertFalse($r['reported']);
-        self::assertSame('self', $r['reason']);
-        self::assertCount(0, $calls);   // the invariant: no request even attempted
+        self::assertTrue($a->enqueue('45.9.148.1', 'funnypot web honeypot, port 8080: GET http://x/.git/config', '21')['queued']);
+        self::assertSame(1, $a->queueCount());
+        self::assertCount(0, $calls);                       // nothing sent until drain
+
+        $r = $a->drain();
+        self::assertSame(1, $r['sent']);
+        self::assertSame(0, $a->queueCount());
+        self::assertSame('45.9.148.1', $calls[0]['ip']);
+        self::assertSame('21', $calls[0]['cats']);
+    }
+
+    public function test_never_enqueues_self(): void
+    {
+        $a = $this->make($this->dbPath(), ['45.9.148.1']);
+        self::assertSame('self', $a->enqueue('45.9.148.1', 'x')['reason']);
+        self::assertSame(0, $a->queueCount());
     }
 
     public function test_inert_without_self_ips(): void
     {
-        $calls = [];
-        $a = new AbuseIpdb('KEY', $this->dbPath(), [], 1000, 6, $this->recorder($calls));
-
-        self::assertSame('self ips not configured', $a->report('45.9.148.1', 'x')['reason']);
-        self::assertCount(0, $calls);   // fail safe: never report when our own IP is unknown
+        $a = $this->make($this->dbPath(), []);
+        self::assertSame('self ips not configured', $a->enqueue('45.9.148.1', 'x')['reason']);
+        self::assertSame(0, $a->queueCount());
     }
 
-    public function test_skips_private_and_invalid_ips(): void
+    public function test_skips_private_and_invalid(): void
     {
-        $calls = [];
-        $a = new AbuseIpdb('KEY', $this->dbPath(), ['203.0.113.9'], 1000, 6, $this->recorder($calls));
+        $a = $this->make($this->dbPath(), ['203.0.113.9']);
         foreach (['192.168.1.5', '10.0.0.1', '127.0.0.1', 'not-an-ip'] as $ip) {
-            self::assertFalse($a->report($ip, 'x')['reported']);
+            self::assertFalse($a->enqueue($ip, 'x')['queued']);
         }
-        self::assertCount(0, $calls);
+        self::assertSame(0, $a->queueCount());
     }
 
-    public function test_dedup_within_window(): void
+    public function test_dedup_one_report_per_window(): void
     {
         $calls = [];
-        $a = new AbuseIpdb('KEY', $this->dbPath(), ['203.0.113.9'], 1000, 6, $this->recorder($calls));
+        $a = $this->make($this->dbPath(), ['203.0.113.9'], 1000, 24, $this->recorder($calls));
 
-        self::assertTrue($a->report('45.9.148.1', 'x')['reported']);
-        self::assertSame('deduped', $a->report('45.9.148.1', 'x')['reason']);
-        self::assertCount(1, $calls);
+        self::assertTrue($a->enqueue('45.9.148.1', 'hit 1')['queued']);
+        self::assertSame('deduped', $a->enqueue('45.9.148.1', 'hit 2')['reason']);   // hundreds of hits -> one report
+        self::assertSame('deduped', $a->enqueue('45.9.148.1', 'hit 3')['reason']);
+        self::assertSame(1, $a->queueCount());
     }
 
-    public function test_daily_cap(): void
+    public function test_daily_cap_stops_the_drain(): void
     {
         $calls = [];
-        $a = new AbuseIpdb('KEY', $this->dbPath(), ['203.0.113.9'], 2, 6, $this->recorder($calls));
-
-        self::assertTrue($a->report('45.9.148.1', 'x')['reported']);
-        self::assertTrue($a->report('45.9.148.2', 'x')['reported']);
-        self::assertSame('daily cap', $a->report('45.9.148.3', 'x')['reason']);
+        $a = $this->make($this->dbPath(), ['203.0.113.9'], 2, 24, $this->recorder($calls));
+        foreach (['45.9.148.1', '45.9.148.2', '45.9.148.3'] as $ip) {
+            $a->enqueue($ip, 'x');
+        }
+        $r = $a->drain();
+        self::assertSame(2, $r['sent']);
+        self::assertSame(1, $r['pending']);   // 3rd left for tomorrow
         self::assertCount(2, $calls);
     }
 
-    public function test_disabled_without_key(): void
+    public function test_drain_drops_4xx_retries_5xx(): void
     {
-        $calls = [];
-        $a = new AbuseIpdb('', $this->dbPath(), ['203.0.113.9'], 1000, 6, $this->recorder($calls));
+        // 5xx: kept and retried up to 3 attempts, then dropped.
+        $calls5 = [];
+        $a = $this->make($this->dbPath(), ['203.0.113.9'], 1000, 24, $this->recorder($calls5, 500));
+        $a->enqueue('45.9.148.1', 'x');
+        $a->drain();
+        self::assertSame(1, $a->queueCount());   // still queued after a 5xx
+        $a->drain();
+        $a->drain();
+        self::assertSame(0, $a->queueCount());   // dropped after 3 attempts
 
-        self::assertSame('no api key', $a->report('45.9.148.1', 'x')['reason']);
-        self::assertCount(0, $calls);
+        // 4xx: dropped immediately (it will never succeed).
+        $calls4 = [];
+        $b = $this->make($this->dbPath(), ['203.0.113.9'], 1000, 24, $this->recorder($calls4, 422));
+        $b->enqueue('45.9.148.2', 'x');
+        $b->drain();
+        self::assertSame(0, $b->queueCount());
+    }
+
+    public function test_categories_for_protocol(): void
+    {
+        self::assertSame('18,22', AbuseIpdb::categoriesForProtocol('ssh'));
+        self::assertSame('18,23', AbuseIpdb::categoriesForProtocol('telnet'));
+        self::assertSame('18', AbuseIpdb::categoriesForProtocol('ftp'));
+        self::assertSame('14,15', AbuseIpdb::categoriesForProtocol('redis'));
     }
 }

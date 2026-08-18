@@ -13,8 +13,11 @@ use Throwable;
  * (intel.db, separate from the hit store so a bulk refresh never contends with hit ingest). The
  * honeypot asks isKnown() at write time to flag a hit as coming from a known attacker.
  *
- * Ported from iCabbiTools' URLBlocklistService fetch/parse; the Laravel cache + Redis set become a
- * single indexed SQLite table. CIDR-range feed entries are skipped for now (exact IPs only).
+ * This is info-only: it drives the dashboard "known" badge/filter, it never blocks anyone.
+ *
+ * Both exact IPs and IPv4 CIDR ranges are supported. Ranges are stored as lo/hi integer pairs (the
+ * same trick geo.php uses) and treated as high-confidence (curated netset feeds), so a range match
+ * flags regardless of the corroboration threshold. IPv6 CIDR ranges are skipped.
  */
 final class Blocklist
 {
@@ -25,33 +28,43 @@ final class Blocklist
         'https://www.blocklist.de/downloads/export-ips_all.txt',
         'https://cinsscore.com/list/ci-badguys.txt',
         'https://lists.blocklist.de/lists/ssh.txt',
+        'https://raw.githubusercontent.com/firehol/blocklist-ipsets/master/firehol_level1.netset',
     ];
 
     private ?PDO $db = null;
 
-    /**
-     * @param string $dbPath   intel.db path
-     * @param int    $minLists an IP must appear in at least this many feeds to count as known (>=1)
-     */
     public function __construct(private string $dbPath, private int $minLists = 1)
     {
         $this->minLists = max(1, $minLists);
     }
 
-    /** Is this IP a known attacker (present in >= minLists feeds)? Never throws. */
+    /** Is this IP a known attacker: an exact hit (>= minLists feeds) or inside a blocklisted range? */
     public function isKnown(string $ip): bool
     {
         if ($ip === '' || $ip === 'unknown') {
             return false;
         }
         try {
-            $st = $this->db()->prepare('SELECT lists FROM blocklist WHERE ip = :ip');
+            $db = $this->db();
+            $st = $db->prepare('SELECT lists FROM blocklist WHERE ip = :ip');
             $st->execute([':ip' => $ip]);
             $lists = $st->fetchColumn();
+            if ($lists !== false && (int) $lists >= $this->minLists) {
+                return true;
+            }
 
-            return $lists !== false && (int) $lists >= $this->minLists;
+            $n = ip2long($ip);           // IPv4 range membership (ranges are curated: not minLists-gated)
+            if ($n !== false) {
+                $rst = $db->prepare('SELECT 1 FROM blocklist_ranges WHERE :u BETWEEN lo AND hi LIMIT 1');
+                $rst->execute([':u' => $n & 0xFFFFFFFF]);
+                if ($rst->fetchColumn() !== false) {
+                    return true;
+                }
+            }
+
+            return false;
         } catch (Throwable $e) {
-            return false; // no intel db yet / unreadable: fail open (not flagged), never break a request
+            return false; // no intel db yet / unreadable: fail open, never break a request
         }
     }
 
@@ -64,13 +77,22 @@ final class Blocklist
         }
     }
 
+    public function rangeCount(): int
+    {
+        try {
+            return (int) $this->db()->query('SELECT COUNT(*) FROM blocklist_ranges')->fetchColumn();
+        } catch (Throwable $e) {
+            return 0;
+        }
+    }
+
     /**
-     * Refresh the blocklist from the feeds. $fetch(url) returns the body or null; the default uses
-     * a bounded HTTP GET. Tests inject a fetcher so no network is touched. Returns counts.
+     * Refresh from the feeds. $fetch(url) returns the body or null; the default uses a bounded HTTP
+     * GET. Tests inject a fetcher so no network is touched.
      *
      * @param callable(string):?string|null $fetch
      * @param string[]|null                 $sources
-     * @return array{sources:int,ips:int}
+     * @return array{sources:int,ips:int,ranges:int}
      */
     public function import(?callable $fetch = null, ?array $sources = null): array
     {
@@ -81,7 +103,8 @@ final class Blocklist
             return $body === false ? null : $body;
         };
 
-        $counts = [];
+        $exact = [];
+        $ranges = [];   // list of [lo, hi, count]
         $ok = 0;
         foreach ($sources ?? self::SOURCES as $url) {
             $body = $fetch($url);
@@ -90,50 +113,67 @@ final class Blocklist
             }
             $ok++;
             foreach (preg_split('/\r?\n/', $body) ?: [] as $line) {
-                $parsed = self::parseLine($line);
-                if ($parsed === null) {
+                $line = trim($line);
+                if ($line === '' || $line[0] === '#' || $line[0] === ';') {
                     continue;
                 }
-                [$ip, $c] = $parsed;
-                $counts[$ip] = ($counts[$ip] ?? 0) + $c;
+                $parts = preg_split('/\s+/', $line) ?: [];
+                $token = $parts[0] ?? '';
+                if ($token === '') {
+                    continue;
+                }
+                $count = (isset($parts[1]) && ctype_digit($parts[1])) ? max(1, (int) $parts[1]) : 1;
+
+                if (strpos($token, '/') !== false) {
+                    $range = self::cidrToRange($token);
+                    if ($range !== null) {
+                        $ranges[] = [$range[0], $range[1], $count];
+                    }
+                } elseif (filter_var($token, FILTER_VALIDATE_IP) !== false) {
+                    $exact[$token] = ($exact[$token] ?? 0) + $count;
+                }
             }
         }
 
         $db = $this->db();
         $db->beginTransaction();
         $db->exec('DELETE FROM blocklist');
-        $st = $db->prepare('INSERT OR REPLACE INTO blocklist (ip, lists) VALUES (:ip, :l)');
-        foreach ($counts as $ip => $c) {
-            $st->execute([':ip' => $ip, ':l' => $c]);
+        $db->exec('DELETE FROM blocklist_ranges');
+        $ei = $db->prepare('INSERT OR REPLACE INTO blocklist (ip, lists) VALUES (:ip, :l)');
+        foreach ($exact as $ip => $c) {
+            $ei->execute([':ip' => $ip, ':l' => $c]);
+        }
+        $ri = $db->prepare('INSERT INTO blocklist_ranges (lo, hi, lists) VALUES (:lo, :hi, :l)');
+        foreach ($ranges as [$lo, $hi, $c]) {
+            $ri->execute([':lo' => $lo, ':hi' => $hi, ':l' => $c]);
         }
         $db->commit();
 
-        return ['sources' => $ok, 'ips' => count($counts)];
+        return ['sources' => $ok, 'ips' => count($exact), 'ranges' => count($ranges)];
     }
 
     /**
-     * Extract [ip, count] from a feed line, or null. Comments and CIDR ranges are skipped; an
-     * ipsum-style trailing integer is the corroboration count, otherwise 1.
+     * Convert an IPv4 CIDR to an unsigned [lo, hi] pair, or null for IPv6 / invalid input.
      *
-     * @return array{0:string,1:int}|null
+     * @return array{0:int,1:int}|null
      */
-    private static function parseLine(string $line): ?array
+    private static function cidrToRange(string $cidr): ?array
     {
-        $line = trim($line);
-        if ($line === '' || $line[0] === '#' || $line[0] === ';') {
+        $parts = explode('/', $cidr, 2);
+        if (count($parts) !== 2 || !ctype_digit($parts[1])) {
             return null;
         }
-        $parts = preg_split('/\s+/', $line) ?: [];
-        $ipPart = $parts[0] ?? '';
-        if ($ipPart === '' || strpos($ipPart, '/') !== false) {
-            return null; // CIDR ranges need range storage: a follow-up
+        $n = ip2long($parts[0]);
+        $bits = (int) $parts[1];
+        if ($n === false || $bits < 0 || $bits > 32) {
+            return null;   // IPv6 or malformed
         }
-        if (filter_var($ipPart, FILTER_VALIDATE_IP) === false) {
-            return null;
-        }
-        $count = (isset($parts[1]) && ctype_digit($parts[1])) ? max(1, (int) $parts[1]) : 1;
+        $n &= 0xFFFFFFFF;
+        $mask = $bits === 0 ? 0 : ((0xFFFFFFFF << (32 - $bits)) & 0xFFFFFFFF);
+        $lo = $n & $mask;
+        $hi = $lo | (~$mask & 0xFFFFFFFF);
 
-        return [$ipPart, $count];
+        return [$lo, $hi];
     }
 
     private function db(): PDO
@@ -146,13 +186,13 @@ final class Blocklist
             @mkdir($dir, 0777, true);
         }
         $db = new PDO('sqlite:' . $this->dbPath, null, null, [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]);
-        // Shared by the root refresh runner and the www-data web workers: force 0666 before WAL so
-        // the -wal/-shm sidecars inherit it (same reasoning as the hit store).
-        @chmod($this->dbPath, 0666);
+        @chmod($this->dbPath, 0666);   // shared by the root refresh runner and the www-data web workers
         $db->exec('PRAGMA busy_timeout=3000');
         $db->exec('PRAGMA journal_mode=WAL');
         $db->exec('PRAGMA synchronous=NORMAL');
         $db->exec('CREATE TABLE IF NOT EXISTS blocklist (ip TEXT PRIMARY KEY, lists INTEGER NOT NULL DEFAULT 1)');
+        $db->exec('CREATE TABLE IF NOT EXISTS blocklist_ranges (lo INTEGER NOT NULL, hi INTEGER NOT NULL, lists INTEGER NOT NULL DEFAULT 1)');
+        $db->exec('CREATE INDEX IF NOT EXISTS idx_bl_ranges ON blocklist_ranges(lo, hi)');
 
         return $this->db = $db;
     }

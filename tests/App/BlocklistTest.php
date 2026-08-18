@@ -53,12 +53,49 @@ final class BlocklistTest extends TestCase
 
         self::assertSame(3, $r['sources']);
         self::assertSame(4, $r['ips']);              // 1.2.3.4, 5.6.7.8, 9.9.9.9, 8.8.8.8
+        self::assertSame(1, $r['ranges']);           // 10.0.0.0/8
         self::assertTrue($bl->isKnown('1.2.3.4'));
         self::assertTrue($bl->isKnown('8.8.8.8'));
-        self::assertFalse($bl->isKnown('10.0.0.0'));  // CIDR line skipped, not stored
+        self::assertTrue($bl->isKnown('10.5.5.5'));   // inside the 10.0.0.0/8 range
+        self::assertFalse($bl->isKnown('11.0.0.1'));  // outside it
         self::assertFalse($bl->isKnown('192.168.1.1'));
         self::assertFalse($bl->isKnown('unknown'));
         self::assertFalse($bl->isKnown(''));
+    }
+
+    public function test_cidr_ranges_and_boundaries(): void
+    {
+        $bl = new Blocklist($this->dbPath(), 1);
+        $r = $bl->import(static fn (string $u): ?string => "203.0.113.0/24\n198.51.100.128/25\n", ['nets']);
+
+        self::assertSame(0, $r['ips']);
+        self::assertSame(2, $r['ranges']);
+        self::assertTrue($bl->isKnown('203.0.113.0'));     // network address
+        self::assertTrue($bl->isKnown('203.0.113.255'));   // broadcast
+        self::assertFalse($bl->isKnown('203.0.114.0'));    // just outside
+        self::assertTrue($bl->isKnown('198.51.100.200'));  // inside the /25 upper half
+        self::assertFalse($bl->isKnown('198.51.100.10'));  // lower half, outside the /25
+    }
+
+    public function test_ipv6_cidr_is_skipped(): void
+    {
+        $bl = new Blocklist($this->dbPath(), 1);
+        $r = $bl->import(static fn (string $u): ?string => "2001:db8::/32\n5.5.5.5\n", ['x']);
+
+        self::assertSame(1, $r['ips']);
+        self::assertSame(0, $r['ranges']);                 // IPv6 CIDR not stored
+        self::assertFalse($bl->isKnown('2001:db8::1'));
+        self::assertTrue($bl->isKnown('5.5.5.5'));
+    }
+
+    public function test_ranges_ignore_the_corroboration_threshold(): void
+    {
+        // minLists=2 gates exact IPs, but a curated CIDR range still flags on its own.
+        $bl = new Blocklist($this->dbPath(), 2);
+        $bl->import(static fn (string $u): ?string => "9.9.9.9\n203.0.113.0/24\n", ['one']);
+
+        self::assertFalse($bl->isKnown('9.9.9.9'));        // exact, only 1 feed < minLists 2
+        self::assertTrue($bl->isKnown('203.0.113.50'));    // range still flags
     }
 
     public function test_min_lists_corroboration(): void

@@ -16,6 +16,7 @@ require __DIR__ . '/../vendor/autoload.php';
 
 use Funnypot\App\Config\AppConfig;
 use Funnypot\App\Storage\SqliteHitStore;
+use Funnypot\App\ThreatIntel\AbuseIpdb;
 use Funnypot\Policy\EmulationPolicy;
 use Funnypot\Protocol\Listener;
 use Funnypot\Protocol\ProtocolTemplateSet;
@@ -32,7 +33,25 @@ if ($protocol === '' || $bind === '') {
 $config = AppConfig::fromEnv(__DIR__);
 @mkdir(dirname($config->logPath), 0777, true);
 $store = new SqliteHitStore($config->dbPath, $config->logPath);
-$log = static fn (array $entry) => $store->append($entry);
+
+// Optional AbuseIPDB reporting: queue the attacker IP (with the port + protocol) as each command /
+// login / connection is logged. Enqueue is a local write, so the select loop never blocks; a
+// background worker sends the queued reports.
+$abuse = ($config->abuseIpdbReport && $config->abuseIpdbKey !== '')
+    ? new AbuseIpdb($config->abuseIpdbKey, $config->intelDbPath, $config->selfIps, $config->abuseIpdbDailyCap, $config->abuseIpdbDedupHours)
+    : null;
+$port = (int) substr($bind, (int) strrpos($bind, ':') + 1);
+$categories = AbuseIpdb::categoriesForProtocol($protocol);
+
+$log = static function (array $entry) use ($store, $abuse, $protocol, $port, $categories): void {
+    $store->append($entry);
+    if ($abuse !== null && !empty($entry['ip'])) {
+        $event = (string) ($entry['event'] ?? '');
+        $data = trim(substr((string) ($entry['path'] ?? $entry['body'] ?? ''), 0, 100));
+        $comment = sprintf('funnypot %s honeypot, port %d: %s %s', strtoupper($protocol), $port, $event, $data);
+        $abuse->enqueue((string) $entry['ip'], $comment, $categories);
+    }
+};
 
 // Honour the emulation catalog: a service switched off in funnypot-vulns.json does not bind.
 // (Toggling a service needs a listener restart — the entrypoint relaunches on redeploy.)

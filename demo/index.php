@@ -53,7 +53,7 @@ $blocklist = $config->blocklistEnabled ? new Blocklist($config->intelDbPath, $co
 // AbuseIPDB reporting: opt-in, and only armed when an API key is set. The service self-excludes our
 // own IP (and is inert without FUNNYPOT_SELF_IPS) so our own tests can never report us.
 $abuse = ($config->abuseIpdbReport && $config->abuseIpdbKey !== '')
-    ? new AbuseIpdb($config->abuseIpdbKey, $config->intelDbPath, $config->selfIps, $config->abuseIpdbDailyCap)
+    ? new AbuseIpdb($config->abuseIpdbKey, $config->intelDbPath, $config->selfIps, $config->abuseIpdbDailyCap, $config->abuseIpdbDedupHours)
     : null;
 
 $honeypot = new HoneypotController($store, $geo, $config, __DIR__ . '/decoys', $blocklist, $abuse);

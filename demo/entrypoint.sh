@@ -110,4 +110,8 @@ fi
 # seconds (default 6h).
 ( php /app/demo/blocklist-refresh.php || true; while true; do sleep "${FUNNYPOT_BLOCKLIST_INTERVAL:-21600}"; php /app/demo/blocklist-refresh.php || true; done ) &
 
+# AbuseIPDB report drain: send the reports queued by the web + protocol honeypots. No-op unless
+# FUNNYPOT_ABUSEIPDB_REPORT=on with a key. Interval via FUNNYPOT_ABUSEIPDB_DRAIN_INTERVAL (default 60s).
+( while true; do sleep "${FUNNYPOT_ABUSEIPDB_DRAIN_INTERVAL:-60}"; php /app/demo/abuse-drain.php || true; done ) &
+
 exec nginx -g 'daemon off;'

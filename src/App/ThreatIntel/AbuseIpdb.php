@@ -8,27 +8,24 @@ use PDO;
 use Throwable;
 
 /**
- * Report attacker IPs to AbuseIPDB (ported from iCabbiTools' AbuseIPDBService::reportIP). Opt-in,
- * and wrapped in guards so it can only ever report real, external attackers:
+ * Report attacker IPs to AbuseIPDB. We only ever REPORT (never check/fetch — that costs API quota);
+ * the honeypot's own blocklist is a separate, info-only feed.
  *
- *  - INVARIANT (non-negotiable): never report our own IP. If our own IPs are not known, nothing is
- *    reported at all (fail safe), so the honeypot can never flag itself from its own test traffic.
- *  - only public, routable IPs (never RFC1918 / reserved).
- *  - per-IP dedup window (default 6h) and a daily cap (default 1000, the free tier) so a scan burst
- *    cannot spam the API. iCabbiTools has the dedup but not the daily cap; this adds it.
+ * Reporting is split into enqueue (fast, local) and drain (the actual HTTP POSTs), because the
+ * protocol honeypots run a single-process select loop that must never block on a network call. The
+ * request/connection paths enqueue into intel.db; a background worker drains the queue on a timer.
  *
- * State (dedup + daily count) lives in intel.db. The HTTP sender is injectable for tests.
+ * Guards, applied at enqueue so junk never queues:
+ *  - INVARIANT: never report our own IP, and report nothing at all if our own IP is unknown.
+ *  - public, routable IPs only.
+ *  - per-IP dedup window + a daily cap (the free tier is ~1000/day).
  */
 final class AbuseIpdb
 {
     private ?PDO $db = null;
 
     /**
-     * @param string   $apiKey     AbuseIPDB API key ('' disables)
-     * @param string   $intelDbPath intel.db (shared with the blocklist)
-     * @param string[] $selfIps    our own public IP(s); reporting is disabled if this is empty
-     * @param int      $dailyCap   stop reporting once this many reports have been sent today
-     * @param int      $dedupHours do not re-report the same IP within this many hours
+     * @param string[] $selfIps our own public IP(s); reporting is disabled when empty
      * @param callable(string,array<string>,string):array{status:int,body:string}|null $sender
      */
     public function __construct(
@@ -36,33 +33,49 @@ final class AbuseIpdb
         private string $intelDbPath,
         private array $selfIps = [],
         private int $dailyCap = 1000,
-        private int $dedupHours = 6,
+        private int $dedupHours = 24,
         private $sender = null,
     ) {
     }
 
+    /** AbuseIPDB category ids appropriate to a protocol honeypot hit. */
+    public static function categoriesForProtocol(string $protocol): string
+    {
+        switch (strtolower($protocol)) {
+            case 'ssh':
+                return '18,22';        // brute-force, SSH
+            case 'telnet':
+                return '18,23';        // brute-force, IoT-targeted
+            case 'ftp':
+            case 'smtp':
+            case 'pop3':
+            case 'imap':
+                return '18';           // brute-force
+            default:
+                return '14,15';        // port scan, hacking
+        }
+    }
+
     /**
-     * Report an attacker IP. Returns whether it was reported and why not if it was skipped. Never
-     * throws — a reporting failure must not affect the honeypot response.
+     * Queue a report if it passes the guards. Fast (a local SQLite write); safe to call from the
+     * request path and the listener loop.
      *
-     * @return array{reported:bool,reason:string}
+     * @return array{queued:bool,reason:string}
      */
-    public function report(string $ip, string $comment): array
+    public function enqueue(string $ip, string $comment, string $categories = '21'): array
     {
         if ($this->apiKey === '') {
             return $this->skip('no api key');
         }
-        // Fail safe: without our own IP list we cannot guarantee we are not reporting ourselves.
         if ($this->selfIps === []) {
-            return $this->skip('self ips not configured');
+            return $this->skip('self ips not configured');   // fail safe
         }
         if (in_array($ip, $this->selfIps, true)) {
-            return $this->skip('self');                 // the invariant
+            return $this->skip('self');                       // the invariant
         }
         if (!self::reportable($ip)) {
             return $this->skip('not a public ip');
         }
-
         try {
             if ($this->recentlyReported($ip)) {
                 return $this->skip('deduped');
@@ -70,36 +83,93 @@ final class AbuseIpdb
             if ($this->dailyCount() >= $this->dailyCap) {
                 return $this->skip('daily cap');
             }
+            $this->db()->prepare(
+                'INSERT INTO abuse_queue (ip, categories, comment, created_at, attempts) VALUES (:ip,:c,:m,:t,0)'
+            )->execute([':ip' => $ip, ':c' => $categories, ':m' => substr($comment, 0, 1000), ':t' => gmdate('c')]);
+            $this->recordReported($ip);   // dedup mark now so the same IP does not re-queue
 
-            $send = $this->sender ?? [$this, 'httpPost'];
-            $res = $send(
-                'https://api.abuseipdb.com/api/v2/report',
-                ['Key: ' . $this->apiKey, 'Accept: application/json'],
-                http_build_query([
-                    'ip' => $ip,
-                    'categories' => '14,21',   // port scan + web app attack
-                    'comment' => substr($comment, 0, 900),
-                    'timestamp' => gmdate('c'),
-                ])
-            );
-
-            $this->recordReported($ip);
-            $this->bumpDaily();
-            $status = (int) ($res['status'] ?? 0);
-
-            return ['reported' => $status >= 200 && $status < 300, 'reason' => 'http ' . $status];
+            return ['queued' => true, 'reason' => 'queued'];
         } catch (Throwable $e) {
             return $this->skip('error: ' . $e->getMessage());
         }
     }
 
-    /** @return array{reported:bool,reason:string} */
-    private function skip(string $reason): array
+    /**
+     * Send queued reports. Stops at the daily cap; drops 2xx/4xx, retries transient failures up to
+     * three times. Returns counts.
+     *
+     * @return array{sent:int,failed:int,pending:int}
+     */
+    public function drain(int $limit = 200): array
     {
-        return ['reported' => false, 'reason' => $reason];
+        $sent = 0;
+        $failed = 0;
+        try {
+            $rows = $this->db()->query('SELECT * FROM abuse_queue ORDER BY id ASC LIMIT ' . max(1, $limit))
+                ->fetchAll(PDO::FETCH_ASSOC);
+        } catch (Throwable $e) {
+            return ['sent' => 0, 'failed' => 0, 'pending' => 0];
+        }
+
+        $send = $this->sender ?? [$this, 'httpPost'];
+        foreach ($rows as $row) {
+            if ($this->dailyCount() >= $this->dailyCap) {
+                break;   // leave the rest for tomorrow
+            }
+            $status = 0;
+            try {
+                $res = $send(
+                    'https://api.abuseipdb.com/api/v2/report',
+                    ['Key: ' . $this->apiKey, 'Accept: application/json'],
+                    http_build_query([
+                        'ip' => $row['ip'],
+                        'categories' => $row['categories'],
+                        'comment' => $row['comment'],
+                        'timestamp' => gmdate('c'),
+                    ])
+                );
+                $status = (int) ($res['status'] ?? 0);
+            } catch (Throwable $e) {
+                $status = 0;
+            }
+
+            if ($status >= 200 && $status < 300) {
+                $this->delete((int) $row['id']);
+                $this->bumpDaily();
+                $sent++;
+            } elseif ($status >= 400 && $status < 500) {
+                $this->delete((int) $row['id']);   // client error: it will never succeed
+                $failed++;
+            } else {
+                $attempts = (int) $row['attempts'] + 1;
+                if ($attempts >= 3) {
+                    $this->delete((int) $row['id']);
+                    $failed++;
+                } else {
+                    $this->db()->prepare('UPDATE abuse_queue SET attempts = :a WHERE id = :id')
+                        ->execute([':a' => $attempts, ':id' => (int) $row['id']]);
+                }
+            }
+        }
+
+        return ['sent' => $sent, 'failed' => $failed, 'pending' => $this->queueCount()];
     }
 
-    /** Public, routable IPs only: never RFC1918, loopback or other reserved space. */
+    public function queueCount(): int
+    {
+        try {
+            return (int) $this->db()->query('SELECT COUNT(*) FROM abuse_queue')->fetchColumn();
+        } catch (Throwable $e) {
+            return 0;
+        }
+    }
+
+    /** @return array{queued:bool,reason:string} */
+    private function skip(string $reason): array
+    {
+        return ['queued' => false, 'reason' => $reason];
+    }
+
     private static function reportable(string $ip): bool
     {
         return filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) !== false;
@@ -110,17 +180,19 @@ final class AbuseIpdb
         $st = $this->db()->prepare('SELECT reported_at FROM abuse_reports WHERE ip = :ip');
         $st->execute([':ip' => $ip]);
         $at = $st->fetchColumn();
-        if ($at === false) {
-            return false;
-        }
 
-        return (strtotime((string) $at) ?: 0) > time() - $this->dedupHours * 3600;
+        return $at !== false && (strtotime((string) $at) ?: 0) > time() - $this->dedupHours * 3600;
     }
 
     private function recordReported(string $ip): void
     {
-        $st = $this->db()->prepare('INSERT OR REPLACE INTO abuse_reports (ip, reported_at) VALUES (:ip, :at)');
-        $st->execute([':ip' => $ip, ':at' => gmdate('c')]);
+        $this->db()->prepare('INSERT OR REPLACE INTO abuse_reports (ip, reported_at) VALUES (:ip,:at)')
+            ->execute([':ip' => $ip, ':at' => gmdate('c')]);
+    }
+
+    private function delete(int $id): void
+    {
+        $this->db()->prepare('DELETE FROM abuse_queue WHERE id = :id')->execute([':id' => $id]);
     }
 
     private function dailyCount(): int
@@ -134,9 +206,8 @@ final class AbuseIpdb
 
     private function bumpDaily(): void
     {
-        $this->db()->prepare(
-            'INSERT INTO abuse_daily (day, n) VALUES (:d, 1) ON CONFLICT(day) DO UPDATE SET n = n + 1'
-        )->execute([':d' => gmdate('Y-m-d')]);
+        $this->db()->prepare('INSERT INTO abuse_daily (day, n) VALUES (:d,1) ON CONFLICT(day) DO UPDATE SET n = n + 1')
+            ->execute([':d' => gmdate('Y-m-d')]);
     }
 
     /**
@@ -149,7 +220,7 @@ final class AbuseIpdb
             'method' => 'POST',
             'header' => implode("\r\n", array_merge($headers, ['Content-Type: application/x-www-form-urlencoded'])),
             'content' => $body,
-            'timeout' => 5,
+            'timeout' => 8,
             'ignore_errors' => true,
         ]]);
         $resp = @file_get_contents($url, false, $ctx);
@@ -178,6 +249,7 @@ final class AbuseIpdb
         $db->exec('PRAGMA journal_mode=WAL');
         $db->exec('CREATE TABLE IF NOT EXISTS abuse_reports (ip TEXT PRIMARY KEY, reported_at TEXT)');
         $db->exec('CREATE TABLE IF NOT EXISTS abuse_daily (day TEXT PRIMARY KEY, n INTEGER NOT NULL DEFAULT 0)');
+        $db->exec('CREATE TABLE IF NOT EXISTS abuse_queue (id INTEGER PRIMARY KEY AUTOINCREMENT, ip TEXT, categories TEXT, comment TEXT, created_at TEXT, attempts INTEGER NOT NULL DEFAULT 0)');
 
         return $this->db = $db;
     }

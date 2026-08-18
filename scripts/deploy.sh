@@ -87,6 +87,13 @@ ssh "${SSH_OPTS[@]}" "$USER@$HOST" "
         -e FUNNYPOT_STYLE=${FUNNYPOT_STYLE:-realistic} \
         -e FUNNYPOT_LE_DOMAIN='$LE_DOMAIN' \
         -e FUNNYPOT_ADMIN_PASSWORD='$ADMIN_PASSWORD' \
+        -e FUNNYPOT_MODE='${FUNNYPOT_MODE:-}' \
+        -e FUNNYPOT_BLOCKLIST='${FUNNYPOT_BLOCKLIST:-}' \
+        -e FUNNYPOT_ABUSEIPDB_KEY='${FUNNYPOT_ABUSEIPDB_KEY:-}' \
+        -e FUNNYPOT_ABUSEIPDB_REPORT='${FUNNYPOT_ABUSEIPDB_REPORT:-}' \
+        -e FUNNYPOT_SELF_IPS='${FUNNYPOT_SELF_IPS:-}' \
+        -e FUNNYPOT_RETAIN_DAYS='${FUNNYPOT_RETAIN_DAYS:-}' \
+        -e FUNNYPOT_RETAIN_GB='${FUNNYPOT_RETAIN_GB:-}' \
         -v \"\$DATA_DIR\":/app/demo/storage \
         -v \"\$ACME_DIR\":/var/acme:ro \
         -v /etc/letsencrypt:/etc/letsencrypt:ro \

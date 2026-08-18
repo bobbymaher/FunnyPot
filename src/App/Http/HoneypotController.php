@@ -140,20 +140,24 @@ final class HoneypotController
                 . "<hr><center>nginx</center>\r\n</body>\r\n</html>\r\n";
         }
 
-        // The attacker has their response; report them off the client's critical path.
+        // Queue an AbuseIPDB report for the matched attacker (a fast local write; the drain worker
+        // sends it). The comment carries the port hit and the full URL, per the report format.
         $this->maybeReport($logged->matched, $clientIp, $context);
     }
 
-    /** Report a matched attacker to AbuseIPDB after flushing the response, so it adds no latency. */
+    /** Queue a matched web attacker for AbuseIPDB, with the port + URL in the comment. */
     private function maybeReport(bool $matched, string $clientIp, RequestContext $context): void
     {
         if (!$matched || $this->abuse === null) {
             return;
         }
-        if (function_exists('fastcgi_finish_request')) {
-            fastcgi_finish_request();
-        }
-        $this->abuse->report($clientIp, 'funnypot honeypot: ' . $context->method . ' ' . substr($context->path, 0, 80));
+        $port = (int) ($_SERVER['SERVER_PORT'] ?? 0);
+        $httpsVal = (string) ($_SERVER['HTTPS'] ?? '');
+        $https = ($httpsVal !== '' && $httpsVal !== 'off') || $port === 443;
+        $host = (string) ($_SERVER['HTTP_HOST'] ?? '');
+        $url = ($host !== '' ? ($https ? 'https' : 'http') . '://' . $host : '') . $context->path;
+        $comment = sprintf('funnypot web honeypot, port %d: %s %s', $port, $context->method, substr($url, 0, 180));
+        $this->abuse->enqueue($clientIp, $comment, '21');   // web app attack
     }
 
     /**
