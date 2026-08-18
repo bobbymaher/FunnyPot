@@ -223,4 +223,25 @@ final class TemplateEngineTest extends TestCase
         self::assertContains($a, ['red', 'green', 'blue']);
         self::assertSame($a, $rr->render('{{pick:red,green,blue}}', [], 3));
     }
+
+    public function test_hex_directive_emits_raw_bytes_including_high_bytes(): void
+    {
+        $rr = new DirectiveRenderer();
+        // Expands to the raw bytes 0xff 0x00 — the whole point is bytes >= 0x80 survive intact,
+        // where the YAML \xNN transport would UTF-8-widen 0xff to two bytes.
+        self::assertSame("\xff\x00", $rr->render('{{hex:ff00}}'));
+        self::assertSame(2, strlen($rr->render('{{hex:ff00}}')));
+        // Interleaved with literal ASCII, so a binary frame can carry matcher substrings verbatim.
+        self::assertSame("A\xffB", $rr->render('A{{hex:ff}}B'));
+    }
+
+    public function test_hex_directive_rejects_odd_and_garbage_input(): void
+    {
+        $rr = new DirectiveRenderer();
+        self::assertSame('', $rr->render('{{hex:abc}}'));    // odd digit count -> no partial byte
+        self::assertSame('', $rr->render('{{hex:zzzz}}'));   // no hex digits at all
+        self::assertSame('', $rr->render('{{hex:}}'));       // empty
+        // Non-hex separators are stripped, leaving an even run of valid digits.
+        self::assertSame("\xab\xcd", $rr->render('{{hex:ab:cd}}'));
+    }
 }

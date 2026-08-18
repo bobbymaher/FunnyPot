@@ -8,10 +8,13 @@ framing: raw
 # auth-plugin name "mysql_native_password" (and the substring "mysql") that the detectors read.
 # Version 8.0.36 with a varied salt on purpose -- NOT Dionaea's fingerprinted 5.7.16 + "aaaaaaaa"
 # scramble, so scanners can't tag this as that known honeypot.
-# All bytes are <= 0x7F so the YAML \xNN transport keeps the packet byte-exact (bytes >= 0x80
-# UTF-8-expand and shift the frame); the capability-flag / charset fields the detectors ignore
-# carry low-byte values for that reason. Little-endian ints.
-banner: "\x4a\x00\x00\x00\x0a8.0.36\x00\x2d\x00\x00\x00\x3f\x1a\x55\x2c\x60\x14\x77\x08\x00\x0f\x02\x21\x02\x00\x08\x00\x15\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x41\x2d\x6b\x19\x52\x33\x7e\x11\x64\x28\x50\x46\x00mysql_native_password\x00"
+# The frame is byte-exact: literal ASCII stays literal, {{hex:..}} expands to the raw binary
+# structure at render time (hex2bin), so the full-width fields keep their real high bytes -- the
+# YAML \xNN transport can't carry bytes >= 0x80 (they UTF-8-widen and shift the frame). Little-
+# endian ints. Real values restored: capability flags lower 0xFFFF, charset 0xFF
+# (utf8mb4_0900_ai_ci), capability flags upper 0xDFFF. Packet length 0x4a (74) is unchanged --
+# restoring the high bytes did not alter any field width.
+banner: "{{hex:4a0000000a}}8.0.36{{hex:002d0000003f1a552c6014770800ffffff0200ffdf1500000000000000000000412d6b1952337e116428504600}}mysql_native_password{{hex:00}}"
 # No reply to post-greeting bytes: the greeting alone is what the detectors match, and a real ERR
-# packet needs the 0xFF marker byte (would UTF-8-expand). Inert: no auth, nothing stored.
+# packet needs the 0xFF marker byte. Inert: no auth, nothing stored.
 rules: []

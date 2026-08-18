@@ -6,13 +6,16 @@ title: EtherNet/IP CIP (Allen-Bradley CompactLogix)
 framing: raw
 # EtherNet/IP: the client speaks first with a List Identity request; no banner.
 banner: ""
-# Emulate the identity reply only. All bytes are <= 0x7F so the YAML transport keeps the
-# encapsulation frame byte-exact (bytes >= 0x80 would UTF-8-expand and shift every field).
-# The socket-address port is left 0 for that reason; it is not part of any matcher. The
-# Vendor ID / Device Type / Product Name ASCII the nuclei matchers key on is embedded literally.
+# Emulate the identity reply only. The encapsulation frame is byte-exact: {{hex:..}} expands the
+# binary structure at render time so the full-width fields keep their real values, while the
+# Product Name ASCII the nuclei matchers key on stays literal. The YAML \xNN transport can't carry
+# bytes >= 0x80 byte-exact (they UTF-8-widen and shift every following field). Real values
+# restored: socket-address sin_port 0xAF12 (44818, big-endian) and device State 0xFF. The Vendor
+# ID / Device Type / Product Name identify the device as an Allen-Bradley/Rockwell PLC.
 rules:
   # List Identity (ENIP command 0x0063) -> List Identity reply: encapsulation header + CPF
   # identity item (Rockwell vendor id 0x0001, PLC device type, product name). nuclei matches
-  # the ASCII product prefix "1769-" (Allen-Bradley CompactLogix).
+  # the ASCII product prefix "1769-" (Allen-Bradley CompactLogix). Encap length 0x3f (63) and
+  # CPF item length 0x39 (57) are unchanged -- restoring the high bytes altered no field width.
   - match: { prefix: "\x63\x00" }
-    send: "\x63\x00\x3f\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x0c\x00\x39\x00\x01\x00\x00\x02\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x0e\x00\x36\x00\x14\x0b\x60\x31\x1a\x06\x6c\x00\x171769-L35E Ethernet Port\x03"
+    send: "{{hex:63003f00000000000000000000000000000000000000000001000c00390001000002af1200000000000000000000000001000e003600140b60311a066c0017}}1769-L35E Ethernet Port{{hex:ff}}"

@@ -10,9 +10,15 @@ banner: ""            # client sends a legacy OP_QUERY (admin.$cmd) first
 # "localTime" (mongodb-detect), "totalLinesWritten" (mongodb-unauth), and "version" +
 # "maxBsonObjectSize" (mongodb-info-enum). Advertised version 7.0.30 sits OUTSIDE the
 # CVE-2025-14847 vulnerable ranges, so the generic enum templates fire but that specific-CVE
-# detector does not. All bytes are <= 0x7F so the YAML \xNN transport stays byte-exact (bytes
-# >= 0x80 UTF-8-expand and shift the frame); the whole reply is kept under 128 bytes so both the
-# wire messageLength and the BSON document length are single low bytes. Field values the
-# detectors ignore (localTime instant) carry arbitrary low-byte data. No command is dispatched.
+# detector does not.
+# The frame is byte-exact: {{hex:..}} expands the wire/BSON framing at render time so the
+# little-endian length prefixes and field values keep their real high bytes -- the YAML \xNN
+# transport can't carry bytes >= 0x80 byte-exact (they UTF-8-widen and shift the frame). The
+# reply is a realistic hello/buildInfo/getLog composite: alongside the four detector fields it
+# carries the fields a genuine 7.0 reply returns (ismaster, maxMessageSizeBytes, maxWriteBatchSize,
+# min/maxWireVersion, readOnly, ok), and localTime is a real millisecond instant. The document is
+# 212 bytes and the whole message 248 bytes, so both the wire messageLength (LE 0xf8 00 00 00) and
+# the BSON document length (LE 0xd4 00 00 00) are genuine multi-byte prefixes with high low-bytes,
+# not the single sub-128 bytes a shrunken reply would need. No command is dispatched.
 default:
-  send: "\x7e\x00\x00\x00\x2a\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x01\x00\x00\x00\x5a\x00\x00\x00\x02version\x00\x07\x00\x00\x007.0.30\x00\x10maxBsonObjectSize\x00\x00\x00\x00\x01\x09localTime\x00\x00\x50\x2c\x6f\x11\x00\x00\x00\x10totalLinesWritten\x00\x04\x00\x00\x00\x00"
+  send: "{{hex:f80000002a00000000000000010000000000000000000000000000000000000001000000d400000008}}ismaster{{hex:000102}}version{{hex:0007000000}}7.0.30{{hex:0010}}maxBsonObjectSize{{hex:000000000110}}maxMessageSizeBytes{{hex:00006cdc0210}}maxWriteBatchSize{{hex:00a086010009}}localTime{{hex:00009418d18f01000010}}minWireVersion{{hex:000000000010}}maxWireVersion{{hex:001500000008}}readOnly{{hex:000010}}totalLinesWritten{{hex:000400000001}}ok{{hex:00000000000000f03f00}}"

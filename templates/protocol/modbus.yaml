@@ -7,15 +7,17 @@ framing: raw
 # Modbus is strict master/slave: the client speaks first, the device never banners.
 banner: ""
 # Emulate identity replies only — never act on writes; nothing is stored or actuated.
-# All response bytes are <= 0x7F so the YAML transport keeps them byte-exact (bytes >=
-# 0x80 would UTF-8-expand and shift the frame). The vendor/product ASCII the nuclei
-# matchers key on is embedded literally.
+# The reply frames are byte-exact: {{hex:..}} expands the binary structure at render time so the
+# full-width bytes keep their real values, while the vendor/product ASCII the nuclei matchers key
+# on stays literal. Match conditions compare raw request bytes (all <= 0x7F) and are not rendered.
 rules:
   # Read Device Identification: FC 0x2B / MEI 0x0E. Reply carries the standard object list
-  # (VendorName / ProductCode / Revision) -> nuclei matches "Schneider Electric".
+  # (VendorName / ProductCode / Revision) -> nuclei matches "Schneider Electric". The conformity
+  # level is the real 0x83 (extended identification, individual access) -- a byte the YAML \xNN
+  # transport could not carry byte-exact. MBAP length 0x31 (49) is unchanged.
   - match: { contains: "\x2b\x0e" }
-    send: "\x00\x00\x00\x00\x00\x31\x00\x2b\x0e\x02\x03\x00\x00\x03\x00\x12Schneider Electric\x01\x0cBMX P34 2020\x02\x05V2.60"
+    send: "{{hex:000000000031002b0e02830000030012}}Schneider Electric{{hex:010c}}BMX P34 2020{{hex:0205}}V2.60"
   # Schneider UMAS (proprietary FC 0x5A). Framing is vendor-private; reply carries the CPU
   # model string -> nuclei matches "BMX P34" on the UMAS probe's response.
   - match: { contains: "\x5a\x00" }
-    send: "\x00\x01\x00\x00\x00\x25\x00\x5a\x00\x00\x00\x00BMX P34 2020\x00Schneider Electric"
+    send: "{{hex:000100000025005a00000000}}BMX P34 2020{{hex:00}}Schneider Electric"

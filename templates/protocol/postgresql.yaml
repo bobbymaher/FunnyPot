@@ -10,9 +10,12 @@ banner: ""            # client sends the StartupMessage first
 # every substring the three detectors read: AuthenticationSASL advertising "SCRAM-SHA-256"
 # (pgsql-detect), ParameterStatus "client_encoding" + "integer_datetimes" (psql-user-enum), and
 # a RowDescription with the \l+ column aliases "Owner" / "Locale Provider" / "Access privileges"
-# (unauth-psql). Contains none of the detectors' negative words (HTTP, FTP, 500). All bytes are
-# <= 0x7F so the YAML \xNN transport stays byte-exact (the RowDescription type-modifier fields,
-# which no matcher reads, use low-byte values instead of the real -1 sentinel for that reason).
-# Nothing is authenticated, executed, or stored -- it is a static reply.
+# (unauth-psql). Contains none of the detectors' negative words (HTTP, FTP, 500).
+# The frame is byte-exact: message-type letters and ASCII matcher substrings stay literal;
+# {{hex:..}} expands the binary framing at render time so the RowDescription varlena sentinels
+# keep their real high bytes -- data type size -1 (0xFFFF) and type modifier -1 (0xFFFFFFFF) for
+# every text column. The YAML \xNN transport can't carry those bytes byte-exact (they UTF-8-widen
+# and shift the frame). Restoring the sentinels did not change any field width, so the
+# RowDescription length 0x7b (123) is unchanged. Nothing is authenticated, executed, or stored.
 default:
-  send: "R\x00\x00\x00\x17\x00\x00\x00\x0aSCRAM-SHA-256\x00\x00S\x00\x00\x00\x18server_version\x0016.2\x00S\x00\x00\x00\x19client_encoding\x00UTF8\x00S\x00\x00\x00\x19integer_datetimes\x00on\x00T\x00\x00\x00\x7b\x00\x04Name\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x19\x00\x40\x00\x00\x00\x00\x00\x00Owner\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x19\x00\x40\x00\x00\x00\x00\x00\x00Locale Provider\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x19\x00\x40\x00\x00\x00\x00\x00\x00Access privileges\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x19\x00\x40\x00\x00\x00\x00\x00\x00"
+  send: "R{{hex:000000170000000a}}SCRAM-SHA-256{{hex:0000}}S{{hex:00000018}}server_version{{hex:00}}16.2{{hex:00}}S{{hex:00000019}}client_encoding{{hex:00}}UTF8{{hex:00}}S{{hex:00000019}}integer_datetimes{{hex:00}}on{{hex:00}}T{{hex:0000007b0004}}Name{{hex:0000000000000000000019ffffffffffff0000}}Owner{{hex:0000000000000000000019ffffffffffff0000}}Locale Provider{{hex:0000000000000000000019ffffffffffff0000}}Access privileges{{hex:0000000000000000000019ffffffffffff0000}}"

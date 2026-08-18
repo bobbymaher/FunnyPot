@@ -24,6 +24,10 @@ use Funnypot\Attack\CannedData;
  *   {{compute.crc32:OPERAND}}
  *   {{pick:a,b,c}}                   seeded choice from a comma list
  *   {{canary.KEY}}                   operator-supplied tripwire token
+ *   {{hex:AABBCC}}                   raw bytes hex2bin(AABBCC) — embed exact bytes (incl. >= 0x80)
+ *                                    that the YAML \xNN transport can't carry byte-exact; non-hex
+ *                                    chars are stripped, an odd digit count renders '' (never a
+ *                                    partial byte). Lets a binary-protocol template be byte-exact.
  *   {{{{ … }}}}                      literal braces (escape) — for pages that must contain real {{ }}
  */
 final class DirectiveRenderer
@@ -38,7 +42,7 @@ final class DirectiveRenderer
     ];
 
     /** The closed directive prefixes — used by the compile-time lint. */
-    public const KNOWN_PREFIXES = ['canned.', 'fake.', 'fakeHex:', 'match.', 'urldecode:match.', 'compute.md5:', 'compute.crc32:', 'pick:', 'canary.'];
+    public const KNOWN_PREFIXES = ['canned.', 'fake.', 'fakeHex:', 'hex:', 'match.', 'urldecode:match.', 'compute.md5:', 'compute.crc32:', 'pick:', 'canary.'];
 
     /**
      * @param string             $template body or header value carrying directives
@@ -109,6 +113,15 @@ final class DirectiveRenderer
             $len = max(1, (int) substr($part, 8));
 
             return substr(hash('sha256', $seed . '|fakehex'), 0, $len);
+        }
+        if (strpos($part, 'hex:') === 0) {
+            // Raw bytes for byte-exact binary frames: hex2bin of the hex digits. Bytes >= 0x80
+            // survive here because expansion happens at render time, not in the YAML \xNN transport
+            // (which UTF-8-widens high codepoints). Non-hex chars are stripped; an odd digit count
+            // yields '' so a malformed directive never emits a partial byte.
+            $hex = (string) preg_replace('/[^0-9a-fA-F]/', '', substr($part, 4));
+
+            return strlen($hex) % 2 === 0 ? (string) hex2bin($hex) : '';
         }
         if (strpos($part, 'urldecode:match.') === 0) {
             return rawurldecode($this->capture($captures, substr($part, 16)));
