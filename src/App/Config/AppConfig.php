@@ -106,7 +106,10 @@ final class AppConfig
             abuseIpdbDedupHours: max(1, (int) $str('FUNNYPOT_ABUSEIPDB_DEDUP_HOURS', '24')),
             llmEnabled: in_array(strtolower((string) getenv('FUNNYPOT_LLM')), ['1', 'on', 'true', 'yes'], true),
             llmUrl: $str('FUNNYPOT_LLM_URL', 'http://funnypot-llm:8080/completion'),
-            llmTimeoutMs: max(200, (int) $str('FUNNYPOT_LLM_TIMEOUT_MS', '1500')),
+            // A CPU 0.5B GBNF generation runs ~3-8s (slower on a small box); the timeout must clear
+            // that or every fake times out into a plain 404. The concurrency cap bounds how many
+            // requests can be held generating at once, so a generous timeout is safe.
+            llmTimeoutMs: max(200, (int) $str('FUNNYPOT_LLM_TIMEOUT_MS', '9000')),
             llmNPredict: max(64, (int) $str('FUNNYPOT_LLM_N_PREDICT', '320')),
             llmCacheDb: $str('FUNNYPOT_LLM_CACHE_DB', $store . '/llm_cache.sqlite'),
             llmCacheMaxBytes: (int) $str('FUNNYPOT_LLM_CACHE_MAX_BYTES', '0'),
