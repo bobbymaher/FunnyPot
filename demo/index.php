@@ -119,8 +119,11 @@ $funnypot = Honeypot::default(new Config(
     // endpoint, not just nuclei-known paths. On by default in the demo.
     attackEmulation: getenv('FUNNYPOT_ATTACK') !== '0',
     // Coherent X-Powered-By on the fake responses too, so they match the server chrome.
-    poweredBy: $poweredBy
-), null, $emulationPolicy);
+    poweredBy: $poweredBy,
+    // The emulation catalog's on/off choices become the engine's deny-set + corpus flag.
+    exclude: $emulationPolicy->disabledIds(),
+    nucleiReflection: $emulationPolicy->nucleiEnabled(),
+));
 
 $detection = $funnypot->detect($context);
 $response = $funnypot->respond($context);

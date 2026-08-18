@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Funnypot;
 
 use Funnypot\Contracts\CompiledStore;
-use Funnypot\Policy\EmulationPolicy;
 use Funnypot\Response\EmulatorRegistry;
 use Funnypot\Store\PhpArrayStore;
 use Funnypot\Support\PathNormalizer;
@@ -36,8 +35,7 @@ final class Honeypot implements Engine
     public function __construct(
         private CompiledStore $store,
         ?Config $config = null,
-        ?Observer $observer = null,
-        ?EmulationPolicy $policy = null
+        ?Observer $observer = null
     ) {
         $this->config = $config ?? new Config();
         $this->observer = $observer ?? new NullObserver();
@@ -48,26 +46,25 @@ final class Honeypot implements Engine
             $this->config->poweredBy
         );
 
-        // The emulation catalog's disabled set is folded into the exclude machinery: a vuln the
-        // operator switched off is simply never a serve candidate. The nuclei corpus is one group
-        // toggle. No policy ⇒ nothing extra excluded, corpus on (unchanged behaviour).
-        $disabled = $policy !== null ? $policy->disabledIds() : [];
-        $this->effectiveExclude = array_values(array_unique(array_merge($this->config->exclude, $disabled)));
-        $this->nucleiEnabled = $policy === null || $policy->nucleiEnabled();
+        // What we will not serve is driven by primitives on Config: the exclude deny-set (template
+        // ids / pids / tags) and the nuclei-corpus group flag. An operator UI (the app's emulation
+        // catalog) resolves its toggles into these before constructing the engine; the engine stays
+        // free of any catalog dependency. A disabled attack id in the exclude set is also skipped.
+        $this->effectiveExclude = $this->config->exclude;
+        $this->nucleiEnabled = $this->config->nucleiReflection;
 
         $this->attackEmulator = $this->config->attackEmulation
-            ? TemplateAttackEmulator::fromPackage()->disable($disabled)
+            ? TemplateAttackEmulator::fromPackage()->disable($this->config->exclude)
             : null;
     }
 
     /**
      * Build against the artifact bundled with the package. Pass a Config to enable
-     * respond mode; the default is inert (detect only). An optional EmulationPolicy restricts
-     * which catalogued emulations are served.
+     * respond mode; the default is inert (detect only).
      */
-    public static function default(?Config $config = null, ?Observer $observer = null, ?EmulationPolicy $policy = null): self
+    public static function default(?Config $config = null, ?Observer $observer = null): self
     {
-        return new self(PhpArrayStore::fromPackage(), $config, $observer, $policy);
+        return new self(PhpArrayStore::fromPackage(), $config, $observer);
     }
 
     public function detect(RequestContext $r): Detection

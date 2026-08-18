@@ -32,6 +32,9 @@ final class Config
      * @param Closure|null  $probeSignature  fn(RequestContext):bool — root/homepage (sig=1) fires ONLY when true; null ⇒ never
      * @param string        $seedSalt        per-deploy salt so persona differs per site
      * @param string[]      $exclude         template ids or tags to never serve
+     * @param bool          $nucleiReflection false drops every nuclei-corpus fake (discrete attack
+     *                                        and route emulations still serve); the app's emulation
+     *                                        catalog toggle drives this
      * @param string|null   $serverHeader    Server banner emitted on EVERY response, so one host
      *                                       presents one coherent server identity (anti-fingerprint).
      *                                       null ⇒ don't force one.
@@ -59,6 +62,7 @@ final class Config
         public ?Closure $probeSignature = null,
         public string $seedSalt = '',
         public array $exclude = [],
+        public bool $nucleiReflection = true,
         public ?string $serverHeader = null,
         public ?string $poweredBy = null,
         public ?string $honeytokenKey = null

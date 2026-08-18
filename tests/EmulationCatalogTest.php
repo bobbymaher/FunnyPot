@@ -135,32 +135,39 @@ final class EmulationCatalogTest extends TestCase
     public function test_honeypot_does_not_serve_a_disabled_attack(): void
     {
         $store = new PhpArrayStore(require __DIR__ . '/../resources/compiled/nuclei-index.php');
-        $config = new Config(mode: 'respond', gate: static fn (RequestContext $r): bool => true, attackEmulation: true);
         $catalog = EmulationCatalog::fromPackage();
         $lfi = new RequestContext('GET', '/nope', 'file=../../etc/passwd');
+        $mk = static fn (EmulationPolicy $p): Honeypot => new Honeypot($store, new Config(
+            mode: 'respond',
+            gate: static fn (RequestContext $r): bool => true,
+            attackEmulation: true,
+            exclude: $p->disabledIds(),
+            nucleiReflection: $p->nucleiEnabled(),
+        ));
 
         // Enabled: the LFI payload is answered with a fake /etc/passwd.
-        $on = new Honeypot($store, $config, null, new EmulationPolicy($catalog, []));
-        self::assertNotNull($on->respond($lfi));
+        self::assertNotNull($mk(new EmulationPolicy($catalog, []))->respond($lfi));
 
         // Disabled in the catalog: the same payload is refused.
-        $off = new Honeypot($store, $config, null, new EmulationPolicy($catalog, ['attack-lfi-unix' => false]));
-        self::assertNull($off->respond($lfi));
+        self::assertNull($mk(new EmulationPolicy($catalog, ['attack-lfi-unix' => false]))->respond($lfi));
     }
 
     public function test_honeypot_nuclei_group_toggle_suppresses_corpus(): void
     {
         $store = new PhpArrayStore(require __DIR__ . '/../resources/compiled/nuclei-index.php');
-        $config = new Config(mode: 'respond', gate: static fn (RequestContext $r): bool => true);
         $catalog = EmulationCatalog::fromPackage();
         $git = new RequestContext('GET', '/.git/config');
+        $mk = static fn (EmulationPolicy $p): Honeypot => new Honeypot($store, new Config(
+            mode: 'respond',
+            gate: static fn (RequestContext $r): bool => true,
+            exclude: $p->disabledIds(),
+            nucleiReflection: $p->nucleiEnabled(),
+        ));
 
-        $on = new Honeypot($store, $config, null, new EmulationPolicy($catalog, []));
-        self::assertNotNull($on->respond($git));
+        self::assertNotNull($mk(new EmulationPolicy($catalog, []))->respond($git));
 
-        // nuclei-reflection off ⇒ corpus bundles (pid != route-*) are no longer candidates.
-        $off = new Honeypot($store, $config, null, new EmulationPolicy($catalog, ['nuclei-reflection' => false]));
-        self::assertNull($off->respond($git));
+        // nuclei-reflection off means corpus bundles (pid != route-*) are no longer candidates.
+        self::assertNull($mk(new EmulationPolicy($catalog, ['nuclei-reflection' => false]))->respond($git));
     }
 
     // --- helpers ---
