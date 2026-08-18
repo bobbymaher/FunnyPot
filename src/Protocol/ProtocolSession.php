@@ -27,6 +27,10 @@ final class ProtocolSession
     public string $lineBuf = '';
     public bool $swallowLf = false;
 
+    // Taunt mode: once logged in, the session streams the troll animation and ignores input.
+    public bool $trolling = false;
+    public int $trollFrame = 0;
+
     public function __construct(public int $seed = 0)
     {
     }

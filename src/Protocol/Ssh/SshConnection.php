@@ -6,6 +6,7 @@ namespace Funnypot\Protocol\Ssh;
 
 use Funnypot\Protocol\ProtocolSession;
 use Funnypot\Protocol\Shell\FakeShell;
+use Funnypot\Protocol\TrollStream;
 
 /**
  * One attacker's SSH-2.0 session, driven purely by inbound bytes. It walks the transport handshake
@@ -83,6 +84,8 @@ final class SshConnection
     private bool $shellOpen = false;
     private string $lineBuf = '';
     private bool $swallowLf = false;
+    private bool $trolling = false;    // taunt mode: streaming the troll animation, shell frozen
+    private int $trollFrame = 0;
     private ?FakeShell $shell = null;
 
     /**
@@ -439,8 +442,14 @@ final class SshConnection
             case 'shell':
                 $this->channelReply($wantReply, true);
                 $this->shellOpen = true;
-                $this->shellData(\Funnypot\Protocol\Taunt::motd() . "Last login: " . gmdate('D M j H:i:s Y') . " from 10.0.0.1\r\n");
-                $this->sendPrompt();
+                if (TrollStream::enabled()) {
+                    // Taunt mode: stream the troll animation forever instead of dropping to a shell.
+                    $this->trolling = true;
+                    $this->pushTrollFrame();
+                } else {
+                    $this->shellData("Last login: " . gmdate('D M j H:i:s Y') . " from 10.0.0.1\r\n");
+                    $this->sendPrompt();
+                }
                 break;
             case 'exec':
                 $command = $r->string();
@@ -470,10 +479,24 @@ final class SshConnection
         $data = $r->string();
 
         $this->replenishWindow(strlen($data));
-        if (!$this->shellOpen || $this->channel === null) {
-            return;
+        if (!$this->shellOpen || $this->channel === null || $this->trolling) {
+            return;   // while trolling the keystrokes are ignored; the animation just keeps coming
         }
         $this->editLine($data);
+    }
+
+    /** True while the taunt animation is streaming (drives the server loop's frame timer). */
+    public function isTrolling(): bool
+    {
+        return $this->trolling && !$this->closed;
+    }
+
+    /** Queue the next troll frame as channel data (the server loop calls this on a timer). */
+    public function pushTrollFrame(): void
+    {
+        if ($this->trolling) {
+            $this->shellData(TrollStream::frame($this->trollFrame++));
+        }
     }
 
     /** Line discipline for the interactive shell: echo input, honour Enter / backspace / Ctrl-C/D. */

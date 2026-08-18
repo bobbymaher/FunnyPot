@@ -12,12 +12,12 @@
             "source": {
                 "type": "git",
                 "url": "https://github.com/bobbymaher/funnypot-core.git",
-                "reference": "020eec60e4b9beefc8a40d5b9f573d2ee0c5886b"
+                "reference": "d888af0b2bc5bc35108c74b879a5a4b50028a563"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/bobbymaher/funnypot-core/zipball/020eec60e4b9beefc8a40d5b9f573d2ee0c5886b",
-                "reference": "020eec60e4b9beefc8a40d5b9f573d2ee0c5886b",
+                "url": "https://api.github.com/repos/bobbymaher/funnypot-core/zipball/d888af0b2bc5bc35108c74b879a5a4b50028a563",
+                "reference": "d888af0b2bc5bc35108c74b879a5a4b50028a563",
                 "shasum": ""
             },
             "require": {
@@ -67,7 +67,7 @@
                 "source": "https://github.com/bobbymaher/funnypot-core/tree/main",
                 "issues": "https://github.com/bobbymaher/funnypot-core/issues"
             },
-            "time": "2026-08-18T14:26:59+00:00"
+            "time": "2026-08-18T17:39:41+00:00"
         }
     ],
     "packages-dev": [

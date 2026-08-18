@@ -21,6 +21,8 @@ final class Listener
     private const PER_IP_CONNS = 20;
     private const IDLE_TIMEOUT = 90;   // seconds
     private const READ_CHUNK = 8192;
+    private const FRAME_INTERVAL = 0.12;   // taunt animation: seconds between streamed frames
+    private const FRAME_TIMEOUT_US = 120000;
 
     /** @param callable(array<string,mixed>):void $logger */
     public function __construct(
@@ -57,7 +59,16 @@ final class Listener
                 }
             }
             $except = [];
-            if (@stream_select($read, $write, $except, 1) === false) {
+            // While any connection is being trolled, wake on a short frame interval so the
+            // animation streams smoothly; otherwise block up to a second like a normal listener.
+            $trolling = false;
+            foreach ($conns as $c) {
+                if ($this->emulator->isTrolling($c['sess'])) {
+                    $trolling = true;
+                    break;
+                }
+            }
+            if (@stream_select($read, $write, $except, $trolling ? 0 : 1, $trolling ? self::FRAME_TIMEOUT_US : 0) === false) {
                 continue; // interrupted; loop again
             }
             $now = time();
@@ -100,6 +111,18 @@ final class Listener
                 $id = get_resource_id($w);
                 if (isset($conns[$id])) {
                     $this->flush($conns, $perIp, $id);
+                }
+            }
+
+            // Push the next animation frame to every trolled connection whose interval has elapsed.
+            if ($trolling) {
+                $mt = microtime(true);
+                foreach ($conns as $id => $c) {
+                    if ($this->emulator->isTrolling($c['sess']) && $mt - $c['lastFrame'] >= self::FRAME_INTERVAL) {
+                        $conns[$id]['wbuf'] .= $this->emulator->trollFrame($c['sess']);
+                        $conns[$id]['lastFrame'] = $mt;
+                        $this->flush($conns, $perIp, $id);
+                    }
                 }
             }
 
@@ -161,7 +184,7 @@ final class Listener
         stream_set_blocking($sock, false);
         $sess = new ProtocolSession(crc32($ip)); // per-attacker seed for {{fake.*}}
         $id = get_resource_id($sock);
-        $conns[$id] = ['sock' => $sock, 'sess' => $sess, 'ip' => $ip, 'last' => $now, 'wbuf' => ''];
+        $conns[$id] = ['sock' => $sock, 'sess' => $sess, 'ip' => $ip, 'last' => $now, 'wbuf' => '', 'lastFrame' => 0.0];
         $perIp[$ip] = ($perIp[$ip] ?? 0) + 1;
 
         $this->log('connect', $ip, $port, '');

@@ -67,6 +67,14 @@ final class ProtocolEmulator
             return '';
         }
 
+        // Taunt mode: once trolling, discard the attacker's keystrokes — the animation streams
+        // from the listener loop's frame timer, not in response to input.
+        if ($s->trolling) {
+            $s->buffer = '';
+
+            return '';
+        }
+
         // A shell protocol (telnet) is character-interactive: strip telnet IAC, edit the line, and
         // echo — not the line-codec request/response loop the data protocols use.
         if (isset($this->protocol['shell'])) {
@@ -88,6 +96,18 @@ final class ProtocolEmulator
         }
 
         return $out;
+    }
+
+    /** Whether this session is streaming the taunt animation (drives the loop's frame timer). */
+    public function isTrolling(ProtocolSession $s): bool
+    {
+        return $s->trolling && !$s->close;
+    }
+
+    /** The next troll frame for a session (the listener loop calls this on a timer). */
+    public function trollFrame(ProtocolSession $s): string
+    {
+        return TrollStream::frame($s->trollFrame++);
     }
 
     private function respond(string $request, ProtocolSession $s): string
@@ -254,7 +274,14 @@ final class ProtocolEmulator
             $s->phase = 'shell';
             $s->cwd = (string) ($cfg['home'] ?? '/root');
 
-            return Taunt::motd() . (string) ($cfg['motd'] ?? "\r\nWelcome.\r\n\r\n") . $this->prompt($s, $host);
+            if (TrollStream::enabled()) {
+                // Taunt mode: stream the troll animation forever instead of a shell prompt.
+                $s->trolling = true;
+
+                return TrollStream::frame($s->trollFrame++);
+            }
+
+            return (string) ($cfg['motd'] ?? "\r\nWelcome.\r\n\r\n") . $this->prompt($s, $host);
         }
 
         $out = $this->fakeShell()->run($line, $s);

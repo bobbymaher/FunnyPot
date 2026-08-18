@@ -84,7 +84,7 @@ ssh "${SSH_OPTS[@]}" "$USER@$HOST" "
     sudo mkdir -p /etc/letsencrypt
     sudo docker rm -f funnypot 2>/dev/null || true
     sudo docker run -d --name funnypot --restart unless-stopped \
-        -e FUNNYPOT_STYLE=realistic \
+        -e FUNNYPOT_STYLE=${FUNNYPOT_STYLE:-realistic} \
         -e FUNNYPOT_LE_DOMAIN='$LE_DOMAIN' \
         -e FUNNYPOT_ADMIN_PASSWORD='$ADMIN_PASSWORD' \
         -v \"\$DATA_DIR\":/app/demo/storage \

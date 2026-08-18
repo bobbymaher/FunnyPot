@@ -23,6 +23,8 @@ final class SshServer
     private const IDLE_TIMEOUT = 120;   // seconds
     private const READ_CHUNK = 16384;
     private const DRAIN_READS = 64;     // bounded receive-buffer drain on close
+    private const FRAME_INTERVAL = 0.12;   // taunt animation: seconds between streamed frames
+    private const FRAME_TIMEOUT_US = 120000;
 
     private int $rejectBudget;
 
@@ -68,7 +70,16 @@ final class SshServer
                 }
             }
             $except = [];
-            if (@stream_select($read, $write, $except, 1) === false) {
+            // While any connection is being trolled, wake on a short frame interval so the
+            // animation streams smoothly; otherwise block up to a second like a normal server.
+            $trolling = false;
+            foreach ($conns as $c) {
+                if ($c['conn']->isTrolling()) {
+                    $trolling = true;
+                    break;
+                }
+            }
+            if (@stream_select($read, $write, $except, $trolling ? 0 : 1, $trolling ? self::FRAME_TIMEOUT_US : 0) === false) {
                 continue;
             }
             $now = time();
@@ -97,6 +108,19 @@ final class SshServer
                 $id = get_resource_id($w);
                 if (isset($conns[$id])) {
                     $this->flush($conns, $perIp, $id);
+                }
+            }
+
+            // Push the next animation frame to every trolled connection whose interval has elapsed.
+            if ($trolling) {
+                $mt = microtime(true);
+                foreach ($conns as $id => $c) {
+                    if ($c['conn']->isTrolling() && $mt - $c['lastFrame'] >= self::FRAME_INTERVAL) {
+                        $c['conn']->pushTrollFrame();
+                        $conns[$id]['wbuf'] .= $c['conn']->takeOut();
+                        $conns[$id]['lastFrame'] = $mt;
+                        $this->flush($conns, $perIp, $id);
+                    }
                 }
             }
 
@@ -136,7 +160,7 @@ final class SshServer
         );
         $conn->onConnect();
         $id = get_resource_id($sock);
-        $conns[$id] = ['sock' => $sock, 'conn' => $conn, 'ip' => $ip, 'last' => $now, 'wbuf' => $conn->takeOut()];
+        $conns[$id] = ['sock' => $sock, 'conn' => $conn, 'ip' => $ip, 'last' => $now, 'wbuf' => $conn->takeOut(), 'lastFrame' => 0.0];
         $perIp[$ip] = ($perIp[$ip] ?? 0) + 1;
         $this->flush($conns, $perIp, $id);
     }
