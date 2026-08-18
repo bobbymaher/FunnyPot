@@ -1,12 +1,12 @@
-# funnypot — standalone honeypot demo
+# funnypot: standalone honeypot demo
 
-Runs funnypot as a **self-contained honeypot server**. Drop it on a box, point traffic at it,
-and every scanner that probes it gets served a plausible fake while you watch the hits land on a
-live dashboard. Same codebase as the composer library — this just wires it into a front controller.
+Runs funnypot as a self-contained honeypot server. Drop it on a box, point traffic at it, and every
+scanner that probes it gets served a plausible fake while you watch the hits land on a live
+dashboard. Same codebase as the composer library; this just wires it into a front controller.
 
-- `GET /` → a **"Welcome to funnypot"** homepage + a live dashboard of recent hits (auto-refresh 5s)
-- anything else → funnypot detects the scanner probe, serves a fake if it matches, and **logs every
-  request** — detections *and* non-detections — as JSON lines (to the log file and to stderr, so
+- `GET /`: a "Welcome to funnypot" homepage + a live dashboard of recent hits (auto-refresh 5s)
+- anything else: funnypot detects the scanner probe, serves a fake if it matches, and logs every
+  request (detections and non-detections) as JSON lines (to the log file and to stderr, so
   `docker logs` shows them live)
 
 ## Run it
@@ -25,7 +25,7 @@ docker build -f demo/Dockerfile -t funnypot .
 docker run --rm -p 8080:8080 funnypot
 ```
 
-**No Docker (local PHP — dev/poke only):**
+**No Docker (local PHP, dev/poke only):**
 
 ```bash
 php -S 0.0.0.0:8080 -t demo demo/index.php
@@ -34,7 +34,7 @@ php -S 0.0.0.0:8080 -t demo demo/index.php
 Then open <http://localhost:8080> for the dashboard.
 
 > Use Docker (nginx + php-fpm) for anything a scanner will actually hit. `php -S` is
-> **single-process** — it serves one request at a time, so a scanner's concurrent flood
+> single-process: it serves one request at a time, so a scanner's concurrent flood
 > queues up and times out (nuclei then marks the host unresponsive and quits, matching
 > almost nothing). The Docker image runs php-fpm with a worker pool + opcache and caches
 > the compiled index per worker, so it stays responsive under load.
@@ -47,14 +47,14 @@ From another shell, act like a scanner:
 curl http://localhost:8080/.git/config          # served a believable fake git config
 curl http://localhost:8080/.env                 # served a believable fake .env
 curl http://localhost:8080/nope                 # a normal 404 (logged as a non-detection)
-curl -O http://localhost:8080/backup.zip        # a nested decoy archive — unzip it, find another zip…
+curl -O http://localhost:8080/backup.zip        # a nested decoy archive: unzip it to find another zip
 nuclei -u http://localhost:8080 -t http/exposures/   # watch dozens light up on the dashboard
 ```
 
-A `.zip` / `.tar.gz` probe on a path with no template gets a **nested decoy archive** instead of a
+A `.zip` / `.tar.gz` probe on a path with no template gets a nested decoy archive instead of a
 404: peel a layer, find another archive, repeat down to fabricated secrets. It wastes an attacker's
-time re-extracting — bounded (a few KB, extracts to a few KB), never a decompression bomb. Rebuild
-the assets with `scripts/build-decoys.sh`; disable with `FUNNYPOT_DECOY_ARCHIVE=0`.
+time re-extracting. It's bounded (a few KB, extracts to a few KB), never a decompression bomb.
+Rebuild the assets with `scripts/build-decoys.sh`; disable with `FUNNYPOT_DECOY_ARCHIVE=0`.
 
 Watch them appear on the homepage, and stream the raw log with `docker logs -f <container>`.
 
@@ -70,21 +70,21 @@ Watch them appear on the homepage, and stream the raw log with `docker logs -f <
 | `FUNNYPOT_DB` | `demo/storage/funnypot.sqlite` | SQLite store path for real all-time stats; `off` = file-only (recent-window stats) |
 | `FUNNYPOT_GEO_DB` | `demo/storage/dbip-country.csv.gz` | DB-IP Lite CSV for the GeoIP map/country stats |
 
-The dashboard polls a **delta feed** (`/?feed=1&after=<cursor>`) that returns only rows appended
-since the last poll — not the whole tail — and appends them in place; **load older** pages back
-through history. When `pdo_sqlite` is present (it is in the docker image) a **SQLite mirror** gives
-real all-time stats plus top-talkers / source-countries / templates-fired / hourly-activity
-widgets and an **attacker map** (Leaflet + OSM/CARTO dark tiles). For the map + country stats,
-fetch the free GeoIP data once and build the table:
+The dashboard polls a delta feed (`/?feed=1&after=<cursor>`) that returns only rows appended since
+the last poll, not the whole tail, and appends them in place; load older pages back through history.
+When `pdo_sqlite` is present (it is in the docker image) a SQLite mirror gives real all-time stats
+plus top-talkers / source-countries / templates-fired / hourly-activity widgets and an attacker map
+(Leaflet + OSM/CARTO dark tiles). For the map + country stats, fetch the free GeoIP data once and
+build the table:
 
 ```bash
 scripts/fetch-geoip.sh                                   # -> demo/storage/dbip-country.csv.gz
 # then, with FUNNYPOT_ADMIN_PASSWORD set, click "geoip" on the dashboard (or POST /?admin=geoip)
 ```
 
-With `FUNNYPOT_ADMIN_PASSWORD` set, **prune** (retention: keep newest N), **clear**, and **geoip**
-(build the lookup table) are available behind the password; the public view is unaffected.
+With `FUNNYPOT_ADMIN_PASSWORD` set, prune (retention: keep newest N), clear, and geoip (build the
+lookup table) are available behind the password; the public view is unaffected.
 
-> The demo serves a fake to **every** matched probe (`gate` is always open) and reveals itself on
-> the homepage — that's the point of a *demo*. For real deployment, gate on your own suspicion
+> The demo serves a fake to every matched probe (`gate` is always open) and reveals itself on
+> the homepage; that's the point of a demo. For real deployment, gate on your own suspicion
 > signal and drop the give-away homepage.
