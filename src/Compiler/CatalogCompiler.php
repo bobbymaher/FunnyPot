@@ -25,26 +25,31 @@ final class CatalogCompiler
     ];
 
     /**
+     * @param string      $appRoot    the app repo root (holds templates/protocol + the nuclei corpus)
+     * @param string|null $engineRoot funnypot-core root (holds templates/attack + templates/route +
+     *                                the compiled manifest). Null means it is the same root, as in a
+     *                                mono-repo or a test fixture.
      * @return array<string,array<string,mixed>> id => catalog entry
      */
-    public function compile(string $root): array
+    public function compile(string $appRoot, ?string $engineRoot = null): array
     {
-        $root = rtrim($root, '/');
+        $appRoot = rtrim($appRoot, '/');
+        $engineRoot = rtrim($engineRoot ?? $appRoot, '/');
         $entries = [];
 
-        foreach ($this->scan($root . '/templates/attack', 'id') as [$doc, $rel]) {
+        foreach ($this->scan($engineRoot . '/templates/attack', 'id') as [$doc, $rel]) {
             $entry = $this->entry($doc, 'attack', $rel, (string) ($doc['id'] ?? ''));
             if ($entry !== null) {
                 $entries[$entry['id']] = $entry;
             }
         }
-        foreach ($this->scan($root . '/templates/route', 'id') as [$doc, $rel]) {
+        foreach ($this->scan($engineRoot . '/templates/route', 'id') as [$doc, $rel]) {
             $entry = $this->entry($doc, 'route', $rel, (string) ($doc['id'] ?? ''), 'info');
             if ($entry !== null) {
                 $entries[$entry['id']] = $entry;
             }
         }
-        foreach ($this->scan($root . '/templates/protocol', 'protocol') as [$doc, $rel]) {
+        foreach ($this->scan($appRoot . '/templates/protocol', 'protocol') as [$doc, $rel]) {
             $proto = (string) ($doc['protocol'] ?? '');
             if ($proto === '') {
                 continue;
@@ -57,7 +62,7 @@ final class CatalogCompiler
             }
         }
 
-        $entries['nuclei-reflection'] = $this->corpusEntry($root);
+        $entries['nuclei-reflection'] = $this->corpusEntry($engineRoot);
 
         uasort($entries, static function (array $a, array $b): int {
             return [$a['kind'], $a['id']] <=> [$b['kind'], $b['id']];

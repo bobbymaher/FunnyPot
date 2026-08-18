@@ -10,7 +10,7 @@ declare(strict_types=1);
  * protocol listeners read the resulting funnypot-vulns.json.
  */
 
-require __DIR__ . '/autoload.php';
+require __DIR__ . '/../vendor/autoload.php';
 
 use Funnypot\Policy\EmulationCatalog;
 use Funnypot\Policy\EmulationPolicy;

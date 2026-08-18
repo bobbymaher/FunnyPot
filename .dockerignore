@@ -1,6 +1,5 @@
 .git
 vendor
 node_modules
-composer.lock
 demo/storage
 scripts/deploy.env
