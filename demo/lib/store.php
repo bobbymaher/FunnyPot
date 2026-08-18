@@ -32,7 +32,17 @@ final class Store
     /** Append a hit. File first (canonical), then a best-effort DB mirror. */
     public function append(array $entry): void
     {
-        $line = json_encode($entry, JSON_UNESCAPED_SLASHES) . "\n";
+        // Attacker-supplied fields carry raw bytes from the binary protocol honeypots (mysql/modbus
+        // greetings, ssh pre-auth junk, telnet IAC). Store them UTF-8-safe + readable so one bad
+        // byte can never blank the JSON feed or hide what was sent.
+        if (isset($entry['path'])) {
+            $entry['path'] = self::clean((string) $entry['path'], 400);
+        }
+        if (isset($entry['body'])) {
+            $entry['body'] = self::clean((string) $entry['body'], 2000);
+        }
+
+        $line = json_encode($entry, JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE) . "\n";
         @file_put_contents($this->logFile, $line, FILE_APPEND | LOCK_EX);
         @file_put_contents('php://stderr', $line);
 
@@ -43,6 +53,24 @@ final class Store
                 // never let logging break the honeypot
             }
         }
+    }
+
+    /**
+     * Make an attacker byte string safe to store + render: keep printable ASCII, escape every other
+     * byte (control + high/binary) as \xNN. The result is always valid UTF-8, so it can neither
+     * blank a json_encode nor smuggle terminal-control bytes into the dashboard.
+     */
+    private static function clean(string $s, int $max): string
+    {
+        if (strlen($s) > $max) {
+            $s = substr($s, 0, $max);
+        }
+
+        return (string) preg_replace_callback(
+            '/[^\x20-\x7e]/',
+            static fn (array $m): string => sprintf('\\x%02x', ord($m[0])),
+            $s
+        );
     }
 
     /**
@@ -301,7 +329,7 @@ final class Store
             ':matched' => !empty($e['matched']) ? 1 : 0,
             ':severity' => (string) ($e['severity'] ?? ''),
             ':served' => !empty($e['served']) ? 1 : 0,
-            ':templates' => json_encode(array_values((array) ($e['templates'] ?? [])), JSON_UNESCAPED_SLASHES),
+            ':templates' => json_encode(array_values((array) ($e['templates'] ?? [])), JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE),
             ':body' => (string) ($e['body'] ?? ''),
             ':event' => (string) ($e['event'] ?? ''),
             ':log4shell' => !empty($e['log4shell']) ? 1 : 0,

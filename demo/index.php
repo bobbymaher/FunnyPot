@@ -290,8 +290,12 @@ function demo_feed(Store $store): void
     header('Content-Type: application/json');
     header('Cache-Control: no-store');
 
+    // JSON_INVALID_UTF8_SUBSTITUTE: attacker payloads logged from the binary protocol honeypots
+    // (mysql/modbus/ssh pre-auth junk, telnet IAC bytes) can leave non-UTF-8 bytes in a stored
+    // row; without this, one bad byte makes json_encode return false and the whole feed goes blank.
+    $flags = JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE;
     if (($_GET['feed'] ?? '') === 'older') {
-        echo json_encode($store->older(max(0, (int) ($_GET['skip'] ?? 0))), JSON_UNESCAPED_SLASHES);
+        echo json_encode($store->older(max(0, (int) ($_GET['skip'] ?? 0))), $flags);
 
         return;
     }
@@ -299,7 +303,7 @@ function demo_feed(Store $store): void
     $out = $store->delta((int) ($_GET['after'] ?? 0));
     $out['stats'] = $store->stats();
     $out['widgets'] = $store->widgets();
-    echo json_encode($out, JSON_UNESCAPED_SLASHES);
+    echo json_encode($out, $flags);
 }
 
 /**
