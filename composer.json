@@ -1,27 +1,22 @@
 {
     "name": "bobbymaher/funnypot",
-    "description": "A honeypot engine: answer a scanner probe with the fake-vulnerable response it expects - by inverting nuclei templates and emulating attack classes + exposed-product endpoints.",
-    "type": "library",
+    "description": "funnypot: a standalone multi-protocol honeypot. HTTP nuclei-inversion deception (via funnypot-core) plus SSH, telnet, redis, mysql and 14 more TCP service emulators, with a live attacker dashboard.",
+    "type": "project",
     "license": "MIT",
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "repositories": [
+        { "type": "vcs", "url": "https://github.com/bobbymaher/funnypot-core" }
+    ],
     "require": {
-        "php": ">=8.0"
+        "php": ">=8.0",
+        "ext-sodium": "*",
+        "ext-openssl": "*",
+        "bobbymaher/funnypot-core": "dev-main"
     },
     "require-dev": {
-        "nyholm/psr7": "^1.8",
         "phpunit/phpunit": "^9.5",
-        "psr/http-factory": "^1.1",
-        "psr/http-message": "^2.0",
-        "psr/http-server-middleware": "^1.0",
         "symfony/yaml": "^5.4 || ^6.0"
-    },
-    "suggest": {
-        "ext-sodium": "Required only for the pure-PHP SSH honeypot server (Protocol\\Ssh): curve25519 key exchange + ed25519 host key.",
-        "ext-openssl": "Required only for the pure-PHP SSH honeypot server (Protocol\\Ssh): the aes256-ctr transport cipher.",
-        "symfony/yaml": "Required only to compile templates (bin/funnypot). Runtime needs PHP alone.",
-        "illuminate/support": "Required only to use the Laravel bridge (Laravel\\FunnypotServiceProvider).",
-        "psr/http-server-middleware": "Required only to use the PSR-15 adapter (Http\\HoneypotMiddleware).",
-        "psr/http-message": "Required only to use the PSR-15 adapter (Http\\PsrRequestMapper / Http\\PsrResponseMapper).",
-        "psr/http-factory": "Required only to use the PSR-15 adapter (response/stream factories passed to Http\\HoneypotMiddleware)."
     },
     "autoload": {
         "psr-4": {
@@ -35,12 +30,5 @@
     },
     "config": {
         "sort-packages": true
-    },
-    "extra": {
-        "laravel": {
-            "providers": [
-                "Funnypot\\Laravel\\FunnypotServiceProvider"
-            ]
-        }
     }
 }

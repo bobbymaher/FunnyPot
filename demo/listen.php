@@ -12,7 +12,7 @@ declare(strict_types=1);
  * The demo entrypoint launches one of these per protocol. Runs forever (a select loop).
  */
 
-require __DIR__ . '/autoload.php';
+require __DIR__ . '/../vendor/autoload.php';
 require __DIR__ . '/lib/store.php';
 
 use Funnypot\Policy\EmulationPolicy;

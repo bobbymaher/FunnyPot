@@ -17,7 +17,7 @@
 
 declare(strict_types=1);
 
-require __DIR__ . '/autoload.php';
+require __DIR__ . '/../vendor/autoload.php';
 require __DIR__ . '/lib/store.php';
 require __DIR__ . '/lib/geo.php';
 
@@ -86,8 +86,12 @@ if ($context->method === 'POST' && $context->path === '/' && isset($_GET['admin'
     return true;
 }
 
-// Homepage / dashboard (and its JSON feed for live AJAX updates).
-if ($context->method === 'GET' && ($context->path === '/' || $context->path === '/index.php')) {
+// Homepage + dashboard, and its JSON feed for live updates. Real dashboard traffic only ever
+// hits "/" (the browser and the feed poll never request /index.php; that path shows up only from
+// a scanner). So the operator UI is served for a clean "/" or a feed poll, and anything else —
+// an attack payload on the homepage, or any hit on /index.php — falls through to the honeypot
+// below instead of handing a scanner the dashboard and blowing our cover.
+if ($context->method === 'GET' && $context->path === '/' && (isset($_GET['feed']) || $_GET === [])) {
     if (isset($_GET['feed'])) {
         demo_feed($store);
     } else {
