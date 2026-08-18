@@ -21,6 +21,9 @@ final class TemplateAttackEmulator
 {
     private DirectiveRenderer $renderer;
 
+    /** @var array<string,true> rule ids the operator has switched off */
+    private array $disabled = [];
+
     /**
      * @param array<int,array<string,mixed>> $rules  compiled attack rules
      * @param array<string,string>           $canary operator tripwire tokens
@@ -46,9 +49,27 @@ final class TemplateAttackEmulator
         return self::fromFile(dirname(__DIR__, 2) . '/resources/compiled/funnypot-attack.php', $canary);
     }
 
+    /**
+     * Restrict to the operator's enabled set — rule ids in $disabled are skipped, so a vuln
+     * switched off in the emulation catalog is never served. Fluent for construction.
+     *
+     * @param string[] $disabledIds
+     */
+    public function disable(array $disabledIds): self
+    {
+        foreach ($disabledIds as $id) {
+            $this->disabled[$id] = true;
+        }
+
+        return $this;
+    }
+
     public function emulate(RequestContext $r, int $seed = 0): ?SynthesizedResponse
     {
         foreach ($this->rules as $rule) {
+            if ($this->disabled !== [] && isset($this->disabled[(string) ($rule['id'] ?? '')])) {
+                continue;
+            }
             $captures = $this->match($r, $rule);
             if ($captures === null) {
                 continue;

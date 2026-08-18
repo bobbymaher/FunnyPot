@@ -26,6 +26,7 @@ use Funnypot\Honeypot;
 use Funnypot\Honeytoken;
 use Funnypot\Http\ResponseEmitter;
 use Funnypot\Log4ShellProbe;
+use Funnypot\Policy\EmulationPolicy;
 use Funnypot\RequestContext;
 
 $logFile = getenv('FUNNYPOT_LOG') ?: __DIR__ . '/storage/hits.log';
@@ -97,6 +98,10 @@ if ($context->method === 'GET' && ($context->path === '/' || $context->path === 
 
 // Honeypot path: detect + (gated) respond.
 $style = getenv('FUNNYPOT_STYLE') ?: 'realistic';
+// Emulation catalog: the operator's funnypot-vulns.json decides which attack classes and
+// product decoys (and the whole nuclei corpus) are served. Absent ⇒ everything at its default.
+$vulnsFile = getenv('FUNNYPOT_VULNS') ?: __DIR__ . '/storage/funnypot-vulns.json';
+$emulationPolicy = EmulationPolicy::fromPackage(is_file($vulnsFile) ? $vulnsFile : null);
 $funnypot = Honeypot::default(new Config(
     mode: 'respond',
     gate: static fn (RequestContext $r): bool => true,          // standalone honeypot: everything hostile-looking gets a fake
@@ -114,7 +119,7 @@ $funnypot = Honeypot::default(new Config(
     attackEmulation: getenv('FUNNYPOT_ATTACK') !== '0',
     // Coherent X-Powered-By on the fake responses too, so they match the server chrome.
     poweredBy: $poweredBy
-));
+), null, $emulationPolicy);
 
 $detection = $funnypot->detect($context);
 $response = $funnypot->respond($context);

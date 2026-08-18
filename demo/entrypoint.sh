@@ -39,6 +39,10 @@ fi
 
 php-fpm --daemonize
 
+# Refresh the emulation toggle list from the compiled catalog: new capabilities auto-appear at
+# their default, operator choices are preserved. The dashboard + listeners read this file.
+php /app/demo/vulns-sync.php || true
+
 # Protocol honeypots: one background listener per protocol (each a bounded select loop). The
 # plaintext ones are data-driven emulators; ssh is a full pure-PHP SSH-2.0 server that terminates
 # the crypto handshake and drops attackers into the same fake shell as telnet. All log connections

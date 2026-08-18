@@ -15,6 +15,7 @@ declare(strict_types=1);
 require __DIR__ . '/autoload.php';
 require __DIR__ . '/lib/store.php';
 
+use Funnypot\Policy\EmulationPolicy;
 use Funnypot\Protocol\Listener;
 use Funnypot\Protocol\ProtocolTemplateSet;
 use Funnypot\Protocol\Ssh\HostKey;
@@ -31,6 +32,15 @@ $logFile = getenv('FUNNYPOT_LOG') ?: __DIR__ . '/storage/hits.log';
 @mkdir(dirname($logFile), 0777, true);
 $store = new Store($logFile, getenv('FUNNYPOT_DB') ?: __DIR__ . '/storage/funnypot.sqlite');
 $log = static fn (array $entry) => $store->append($entry);
+
+// Honour the emulation catalog: a service switched off in funnypot-vulns.json does not bind.
+// (Toggling a service needs a listener restart — the entrypoint relaunches on redeploy.)
+$vulns = getenv('FUNNYPOT_VULNS') ?: __DIR__ . '/storage/funnypot-vulns.json';
+$policy = EmulationPolicy::fromPackage(is_file($vulns) ? $vulns : null);
+if (!$policy->isEnabled('service-' . $protocol)) {
+    fwrite(STDERR, "funnypot-listen {$protocol}: disabled in emulation catalog — not binding {$bind}\n");
+    exit(0);
+}
 
 // SSH is a full crypto server (pure PHP), not a data-driven emulator: it terminates the
 // SSH-2.0 handshake and drops the attacker into the same fake shell telnet uses.

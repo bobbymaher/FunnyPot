@@ -67,6 +67,9 @@ jobs:
           php bin/funnypot compile-routes
           php bin/funnypot compile-protocols
           php bin/funnypot merge-routes
+          # Re-derive the emulation catalog last, so new attack/route/service templates and the
+          # fresh corpus count auto-register in the operator's toggle list.
+          php bin/funnypot compile-catalog
 
       - name: Unit + compiler tests
         run: vendor/bin/phpunit
