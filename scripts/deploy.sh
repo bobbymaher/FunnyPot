@@ -30,6 +30,20 @@ LE_DOMAIN="${LE_DOMAIN:-}"
 # `set -u` so an unset value is not a fatal unbound-variable error; empty keeps admin disabled.
 ADMIN_PASSWORD="${FUNNYPOT_ADMIN_PASSWORD:-}"
 
+# LLM fake-response sidecar (funnypot-llm). Opt-in: FUNNYPOT_LLM_ON=1. The model is memory/CPU-heavy,
+# so on a small box the sidecar runs with a hard memory cap + a limited thread count, and funnypot
+# degrades to a plain 404 whenever it is slow or down — the honeypot is never blocked on it. With
+# LLM_ON left at 0 the whole block is skipped and the deploy is unchanged.
+LLM_ON="${FUNNYPOT_LLM_ON:-0}"
+LLM_REPO="${FUNNYPOT_LLM_REPO:-$REPO_ROOT/../funnypot-llm}"
+LLM_MEM="${FUNNYPOT_LLM_MEM:-700m}"
+LLM_MEM_SWAP="${FUNNYPOT_LLM_MEM_SWAP:-1800m}"
+LLM_THREADS="${FUNNYPOT_LLM_THREADS:-1}"
+LLM_PARALLEL="${FUNNYPOT_LLM_PARALLEL:-1}"
+LLM_MAX_CONCURRENT="${FUNNYPOT_LLM_MAX_CONCURRENT:-1}"
+LLM_TIMEOUT_MS="${FUNNYPOT_LLM_TIMEOUT_MS:-20000}"
+LLM_NET="funnypot-net"
+
 if [ -z "$HOST" ] || [ -z "$KEY" ]; then
     echo "error: FUNNYPOT_HOST and FUNNYPOT_KEY are not set." >&2
     echo "  cp scripts/deploy.env.example scripts/deploy.env  then edit it (it is gitignored)." >&2
@@ -53,6 +67,15 @@ PORTS="21 23 25 79 80 81 88 110 143 443 502 591 873 2082 2083 2086 2087 2095 209
 echo "==> [1/4] build image locally ($PLATFORM)"
 docker build --platform "$PLATFORM" -f "$REPO_ROOT/demo/Dockerfile" -t funnypot "$REPO_ROOT"
 
+if [ "$LLM_ON" = "1" ]; then
+    echo "==> [1b/4] build funnypot-llm sidecar image ($PLATFORM) from $LLM_REPO"
+    if [ ! -f "$LLM_REPO/Dockerfile" ]; then
+        echo "error: funnypot-llm repo not found at $LLM_REPO (set FUNNYPOT_LLM_REPO)." >&2
+        exit 1
+    fi
+    docker build --platform "$PLATFORM" -t funnypot-llm "$LLM_REPO"
+fi
+
 echo "==> [2/4] ensure docker engine on $USER@$HOST"
 ssh "${SSH_OPTS[@]}" "$USER@$HOST" 'bash -s' <<'REMOTE'
 set -e
@@ -67,6 +90,11 @@ REMOTE
 echo "==> [3/4] ship image (~40 MB gzipped) + load on server"
 docker save funnypot | gzip | ssh "${SSH_OPTS[@]}" "$USER@$HOST" 'gunzip | sudo docker load'
 
+if [ "$LLM_ON" = "1" ]; then
+    echo "==> [3b/4] ship funnypot-llm image (model baked in — larger; only re-sent when it changes)"
+    docker save funnypot-llm | gzip | ssh "${SSH_OPTS[@]}" "$USER@$HOST" 'gunzip | sudo docker load'
+fi
+
 echo "==> [4/4] (re)start container (logs persisted to ~/funnypot-data on the host)"
 PFLAGS=""
 for p in $PORTS; do PFLAGS="$PFLAGS -p $p:$p"; done
@@ -74,7 +102,18 @@ for p in $PORTS; do PFLAGS="$PFLAGS -p $p:$p"; done
 # Requires the host's own sshd to have vacated 22 first (scripts/move-sshd-port.sh) and
 # FUNNYPOT_SSH_PORT set to the moved sshd port above.
 if [ "${FUNNYPOT_SSH_ON_22:-0}" = "1" ]; then PFLAGS="$PFLAGS -p 22:2222"; fi
-# \$HOME etc. expand on the REMOTE; \$PFLAGS expands locally.
+# LLM sidecar: network + run commands (single line, ';'-separated to keep the remote quoting simple).
+# All three vars are empty when LLM_ON=0, so the funnypot run below is byte-identical to before. The
+# memory cap means the kernel OOM-kills the SIDECAR, never the honeypot, if the model overruns.
+LLM_SETUP=""
+FUNNYPOT_NET_FLAG=""
+FUNNYPOT_LLM_FLAGS=""
+if [ "$LLM_ON" = "1" ]; then
+    FUNNYPOT_NET_FLAG="--network $LLM_NET"
+    FUNNYPOT_LLM_FLAGS="-e FUNNYPOT_LLM=1 -e FUNNYPOT_LLM_URL=http://funnypot-llm:8080/completion -e FUNNYPOT_LLM_MAX_CONCURRENT=$LLM_MAX_CONCURRENT -e FUNNYPOT_LLM_TIMEOUT_MS=$LLM_TIMEOUT_MS"
+    LLM_SETUP="sudo docker network inspect $LLM_NET >/dev/null 2>&1 || sudo docker network create $LLM_NET ; sudo docker rm -f funnypot-llm 2>/dev/null || true ; sudo docker run -d --name funnypot-llm --restart unless-stopped --network $LLM_NET -m $LLM_MEM --memory-swap $LLM_MEM_SWAP -e THREADS=$LLM_THREADS -e PARALLEL=$LLM_PARALLEL -e CTX_SIZE=2048 funnypot-llm"
+fi
+# \$HOME etc. expand on the REMOTE; \$PFLAGS / \$LLM_SETUP / the LLM flags expand locally.
 # shellcheck disable=SC2029
 ssh "${SSH_OPTS[@]}" "$USER@$HOST" "
     DATA_DIR=\"\$HOME/funnypot-data\"
@@ -82,8 +121,9 @@ ssh "${SSH_OPTS[@]}" "$USER@$HOST" "
     mkdir -p \"\$DATA_DIR\" && chmod 0777 \"\$DATA_DIR\"
     mkdir -p \"\$ACME_DIR/.well-known/acme-challenge\"
     sudo mkdir -p /etc/letsencrypt
+    $LLM_SETUP
     sudo docker rm -f funnypot 2>/dev/null || true
-    sudo docker run -d --name funnypot --restart unless-stopped \
+    sudo docker run -d --name funnypot --restart unless-stopped $FUNNYPOT_NET_FLAG $FUNNYPOT_LLM_FLAGS \
         -e FUNNYPOT_STYLE=${FUNNYPOT_STYLE:-realistic} \
         -e FUNNYPOT_LE_DOMAIN='$LE_DOMAIN' \
         -e FUNNYPOT_ADMIN_PASSWORD='$ADMIN_PASSWORD' \
