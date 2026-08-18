@@ -5,12 +5,42 @@ set -e
 
 CRT=/etc/nginx/funnypot.crt
 KEY=/etc/nginx/funnypot.key
+CN_FILE=/etc/nginx/funnypot.cn
 
 # Generate a self-signed cert on first boot (persisted if /etc/nginx is a volume).
+# The CN/SAN are per-host so the cert is not byte-identical across deployments (a shared
+# CN=localhost/no-SAN cert is a content-hash clustering tell and unusual for a public host).
+# Name precedence: operator-set FUNNYPOT_CN, else the container hostname, else a stable random
+# subdomain saved next to the cert so it survives restarts. Derived names are persisted so the
+# CN stays fixed even if the cert is later regenerated.
 if [ ! -f "$CRT" ] || [ ! -f "$KEY" ]; then
+    if [ -n "${FUNNYPOT_CN:-}" ]; then
+        CN="$FUNNYPOT_CN"
+    elif [ -s "$CN_FILE" ]; then
+        CN=$(cat "$CN_FILE")
+    else
+        CN=$(hostname 2>/dev/null || true)
+        case "$CN" in
+            ''|localhost|localhost.*) CN= ;;
+        esac
+        if [ -z "$CN" ]; then
+            RAND=$(openssl rand -hex 5 2>/dev/null || true)
+            [ -n "$RAND" ] || RAND=$(date +%s | tail -c 7)
+            CN="srv-${RAND}.internal"
+        fi
+        printf '%s\n' "$CN" > "$CN_FILE"
+    fi
+
+    # subjectAltName mirrors the CN; append the host's public DNS when the deploy supplies it.
+    SAN="DNS:${CN}"
+    if [ -n "${FUNNYPOT_PUBLIC_DNS:-}" ] && [ "$FUNNYPOT_PUBLIC_DNS" != "$CN" ]; then
+        SAN="${SAN},DNS:${FUNNYPOT_PUBLIC_DNS}"
+    fi
+
     openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
         -keyout "$KEY" -out "$CRT" \
-        -subj "/CN=${FUNNYPOT_CN:-localhost}" >/dev/null 2>&1
+        -subj "/CN=${CN}" \
+        -addext "subjectAltName=${SAN}" >/dev/null 2>&1
 fi
 
 # Real HTTPS for the admin hostname once Let's Encrypt has issued a cert (mounted from the

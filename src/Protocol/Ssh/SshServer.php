@@ -22,6 +22,7 @@ final class SshServer
     private const PER_IP_CONNS = 12;
     private const IDLE_TIMEOUT = 120;   // seconds
     private const READ_CHUNK = 16384;
+    private const DRAIN_READS = 64;     // bounded receive-buffer drain on close
 
     private int $rejectBudget;
 
@@ -177,12 +178,34 @@ final class SshServer
         if (!isset($conns[$id])) {
             return;
         }
-        @fclose($conns[$id]['sock']);
+        $this->gracefulClose($conns[$id]['sock']);
         $ip = $conns[$id]['ip'];
         if (isset($perIp[$ip]) && --$perIp[$ip] <= 0) {
             unset($perIp[$ip]);
         }
         unset($conns[$id]);
+    }
+
+    /**
+     * Close a client socket the way real OpenSSH does — with an orderly FIN, not a RST. The
+     * kernel emits a RST if a socket is closed while unread bytes sit in its receive buffer, and
+     * on teardown the client's own CHANNEL_CLOSE / trailing bytes routinely land there. A RST is a
+     * subtle honeypot tell, so half-close the write side to push our FIN, then drain whatever the
+     * peer sent before releasing the socket. The socket is non-blocking, and the drain is bounded,
+     * so this never stalls the shared select loop; every call tolerates an already-dead socket.
+     *
+     * @param resource $sock
+     */
+    private function gracefulClose($sock): void
+    {
+        @stream_socket_shutdown($sock, STREAM_SHUT_WR);
+        for ($i = 0; $i < self::DRAIN_READS; $i++) {
+            $chunk = @fread($sock, self::READ_CHUNK);
+            if ($chunk === '' || $chunk === false) {
+                break;
+            }
+        }
+        @fclose($sock);
     }
 
     private function log(string $ip, int $port, string $event, string $detail): void
