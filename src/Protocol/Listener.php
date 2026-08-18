@@ -43,16 +43,20 @@ final class Listener
         $port = self::portOf($bind);
         fwrite(STDERR, "funnypot-listen {$this->protocol} on {$bind}\n");
 
-        /** @var array<int,array{sock:resource,sess:ProtocolSession,ip:string,last:int}> $conns */
+        /** @var array<int,array{sock:resource,sess:ProtocolSession,ip:string,last:int,wbuf:string}> $conns */
         $conns = [];
         $perIp = [];
 
         while (true) {
             $read = [$server];
+            $write = [];
             foreach ($conns as $c) {
                 $read[] = $c['sock'];
+                if ($c['wbuf'] !== '') {
+                    $write[] = $c['sock']; // pending output — wake when the socket drains
+                }
             }
-            $write = $except = [];
+            $except = [];
             if (@stream_select($read, $write, $except, 1) === false) {
                 continue; // interrupted; loop again
             }
@@ -68,8 +72,13 @@ final class Listener
                     continue;
                 }
                 $data = @fread($r, self::READ_CHUNK);
-                if ($data === '' || $data === false) {
-                    $this->close($conns, $perIp, $id); // EOF / error
+                // On a non-blocking stream, '' means EOF only when feof() agrees; otherwise it is a
+                // spurious readable / would-block and the connection must stay open.
+                if ($data === false || ($data === '' && feof($r))) {
+                    $this->close($conns, $perIp, $id);
+                    continue;
+                }
+                if ($data === '') {
                     continue;
                 }
                 $conns[$id]['last'] = $now;
@@ -82,10 +91,15 @@ final class Listener
                     }
                 );
                 if ($resp !== '') {
-                    @fwrite($r, $resp);
+                    $conns[$id]['wbuf'] .= $resp; // queued; flushed below (may be a partial write)
                 }
-                if ($conns[$id]['sess']->close) {
-                    $this->close($conns, $perIp, $id);
+                $this->flush($conns, $perIp, $id);
+            }
+
+            foreach ($write as $w) {
+                $id = get_resource_id($w);
+                if (isset($conns[$id])) {
+                    $this->flush($conns, $perIp, $id);
                 }
             }
 
@@ -99,8 +113,37 @@ final class Listener
     }
 
     /**
+     * Write as much of a connection's queued output as the non-blocking socket accepts; keep the
+     * remainder for the next writable turn. A dropped/partial write must never lose the response —
+     * over docker's port-publishing a freshly-read socket is often not yet writable. Closes the
+     * connection once the emulator asked to close and everything queued has drained.
+     *
+     * @param array<int,array{sock:resource,sess:ProtocolSession,ip:string,last:int,wbuf:string}> $conns
+     * @param array<string,int>                                                                    $perIp
+     */
+    private function flush(array &$conns, array &$perIp, int $id): void
+    {
+        if (!isset($conns[$id])) {
+            return;
+        }
+        $buf = $conns[$id]['wbuf'];
+        if ($buf !== '') {
+            $n = @fwrite($conns[$id]['sock'], $buf);
+            if ($n === false) {
+                $this->close($conns, $perIp, $id);
+
+                return;
+            }
+            $conns[$id]['wbuf'] = $n > 0 ? substr($buf, $n) : $buf;
+        }
+        if ($conns[$id]['wbuf'] === '' && $conns[$id]['sess']->close) {
+            $this->close($conns, $perIp, $id);
+        }
+    }
+
+    /**
      * @param resource                                                                   $server
-     * @param array<int,array{sock:resource,sess:ProtocolSession,ip:string,last:int}>    $conns
+     * @param array<int,array{sock:resource,sess:ProtocolSession,ip:string,last:int,wbuf:string}>    $conns
      * @param array<string,int>                                                          $perIp
      */
     private function accept($server, array &$conns, array &$perIp, int $port, int $now): void
@@ -118,21 +161,16 @@ final class Listener
         stream_set_blocking($sock, false);
         $sess = new ProtocolSession(crc32($ip)); // per-attacker seed for {{fake.*}}
         $id = get_resource_id($sock);
-        $conns[$id] = ['sock' => $sock, 'sess' => $sess, 'ip' => $ip, 'last' => $now];
+        $conns[$id] = ['sock' => $sock, 'sess' => $sess, 'ip' => $ip, 'last' => $now, 'wbuf' => ''];
         $perIp[$ip] = ($perIp[$ip] ?? 0) + 1;
 
         $this->log('connect', $ip, $port, '');
-        $banner = $this->emulator->banner($sess);
-        if ($banner !== '') {
-            @fwrite($sock, $banner);
-        }
-        if ($sess->close) {
-            $this->close($conns, $perIp, $id);
-        }
+        $conns[$id]['wbuf'] = $this->emulator->banner($sess);
+        $this->flush($conns, $perIp, $id);
     }
 
     /**
-     * @param array<int,array{sock:resource,sess:ProtocolSession,ip:string,last:int}> $conns
+     * @param array<int,array{sock:resource,sess:ProtocolSession,ip:string,last:int,wbuf:string}> $conns
      * @param array<string,int>                                                       $perIp
      */
     private function close(array &$conns, array &$perIp, int $id): void
