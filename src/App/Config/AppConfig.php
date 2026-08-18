@@ -42,6 +42,8 @@ final class AppConfig
         public bool $abuseIpdbReport,
         /** Our own public IP(s); AbuseIPDB reporting refuses to report these (and is off if empty). */
         public array $selfIps,
+        /** IPs/CIDRs of proxies in front of us; only these may set X-Forwarded-For. Empty = edge. */
+        public array $trustedProxies,
         public int $abuseIpdbDailyCap,
         /** Report each attacker IP at most once per this many hours (AbuseIPDB dislikes duplicates). */
         public int $abuseIpdbDedupHours,
@@ -102,6 +104,7 @@ final class AppConfig
             abuseIpdbKey: $str('FUNNYPOT_ABUSEIPDB_KEY', ''),
             abuseIpdbReport: in_array(strtolower((string) getenv('FUNNYPOT_ABUSEIPDB_REPORT')), ['1', 'on', 'true', 'yes'], true),
             selfIps: array_values(array_filter(array_map('trim', explode(',', $str('FUNNYPOT_SELF_IPS', ''))))),
+            trustedProxies: array_values(array_filter(array_map('trim', explode(',', $str('FUNNYPOT_TRUSTED_PROXIES', ''))))),
             abuseIpdbDailyCap: max(1, (int) $str('FUNNYPOT_ABUSEIPDB_DAILY_CAP', '1000')),
             abuseIpdbDedupHours: max(1, (int) $str('FUNNYPOT_ABUSEIPDB_DEDUP_HOURS', '24')),
             llmEnabled: in_array(strtolower((string) getenv('FUNNYPOT_LLM')), ['1', 'on', 'true', 'yes'], true),

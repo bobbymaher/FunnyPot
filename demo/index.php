@@ -45,7 +45,7 @@ $geo = new Geo($config->geoDbPath);
 header('X-Powered-By: ' . $config->poweredBy);
 
 $context = RequestContext::fromGlobals();
-$clientIp = HoneypotController::clientIp();
+$clientIp = HoneypotController::clientIp($config->trustedProxies);
 
 // Anti-fingerprint tripwire: plant a signed bait cookie and classify what comes back — a client
 // that returns it tampered is a high-signal probe. Off unless FUNNYPOT_HONEYTOKEN_KEY is set.

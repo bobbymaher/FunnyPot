@@ -51,15 +51,66 @@ final class HoneypotController
         return $this->blocklist !== null && $this->blocklist->isKnown($ip);
     }
 
-    /** The real client IP: first X-Forwarded-For hop, else REMOTE_ADDR. */
-    public static function clientIp(): string
+    /**
+     * The real client IP. X-Forwarded-For is client-spoofable, and this IP drives the probe gate,
+     * the logs, AND AbuseIPDB reports — so trusting a forged header would let an attacker frame an
+     * innocent IP (get it reported/blocklisted) or dodge the per-IP gate by rotating the header.
+     *
+     * So XFF is only honoured when the TCP peer (REMOTE_ADDR) is itself a configured trusted proxy;
+     * then we take the right-most XFF hop that is not also a trusted proxy (the real client at our
+     * trust boundary). With no trusted proxies configured — the edge deployment — the peer is the
+     * client and any client-supplied XFF is ignored.
+     *
+     * @param string[] $trustedProxies IPs / CIDRs of proxies in front of us (empty = we are the edge)
+     */
+    public static function clientIp(array $trustedProxies = []): string
     {
-        $xff = $_SERVER['HTTP_X_FORWARDED_FOR'] ?? '';
-        if ($xff !== '') {
-            return trim(explode(',', $xff)[0]);
+        $remote = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+        if ($trustedProxies === [] || !self::ipInCidrList($remote, $trustedProxies)) {
+            return $remote;
         }
 
-        return $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+        $hops = array_values(array_filter(array_map('trim', explode(',', $_SERVER['HTTP_X_FORWARDED_FOR'] ?? ''))));
+        for ($i = count($hops) - 1; $i >= 0; $i--) {
+            if (!self::ipInCidrList($hops[$i], $trustedProxies)) {
+                return $hops[$i];
+            }
+        }
+
+        return $remote;
+    }
+
+    /** True if $ip matches any entry (a bare IP is exact-match; an a.b.c.d/n is an IPv4 CIDR). */
+    private static function ipInCidrList(string $ip, array $list): bool
+    {
+        foreach ($list as $entry) {
+            if ($entry === $ip) {
+                return true;
+            }
+            if (strpos($entry, '/') !== false && self::ipInCidr($ip, $entry)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** IPv4 CIDR membership. Non-IPv4 inputs (either side) never match — callers fall back to peer. */
+    private static function ipInCidr(string $ip, string $cidr): bool
+    {
+        [$net, $bits] = array_pad(explode('/', $cidr, 2), 2, '32');
+        $ipL = ip2long($ip);
+        $netL = ip2long($net);
+        $bits = (int) $bits;
+        if ($ipL === false || $netL === false || $bits < 0 || $bits > 32) {
+            return false;
+        }
+        if ($bits === 0) {
+            return true;
+        }
+        $mask = -1 << (32 - $bits);
+
+        return ($ipL & $mask) === ($netL & $mask);
     }
 
     /** A robots.txt whose Disallow list is bait: every entry points at one of the honeypot's fakes. */

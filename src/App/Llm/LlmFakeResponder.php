@@ -37,6 +37,18 @@ final class LlmFakeResponder
 
     public function respond(RequestContext $context, string $clientIp): ?SynthesizedResponse
     {
+        // Invariant: this feature can only ever upgrade a 404. Any fault anywhere below — a store
+        // error in the gate, a bad prepared statement, anything — must degrade to null (the plain
+        // 404), never escape as a 500 that a scanner could use to tell the honeypot apart.
+        try {
+            return $this->attempt($context, $clientIp);
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    private function attempt(RequestContext $context, string $clientIp): ?SynthesizedResponse
+    {
         $key = PathNormalizer::key($context->method, $context->path);
 
         // 1. Cache hit — the common case, served byte-identical, no model call, no gate query.

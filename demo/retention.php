@@ -20,7 +20,10 @@ $config = AppConfig::fromEnv(__DIR__);
 if ($config->llmEnabled && is_file($config->llmCacheDb)) {
     try {
         $cache = new LlmFakeCache($config->llmCacheDb);
-        $stale = $cache->reapInflight();
+        // Reap only locks older than the longest a generation could still be running (the request
+        // timeout) plus slack — never a live winner, which would break the cap and single-flight.
+        $staleSecs = max(15, (int) ceil($config->llmTimeoutMs / 1000) + 30);
+        $stale = $cache->reapInflight($staleSecs);
         $evicted = $config->llmCacheMaxBytes > 0 ? $cache->retainBytes($config->llmCacheMaxBytes) : 0;
         if ($stale > 0 || $evicted > 0) {
             fwrite(STDERR, sprintf("retention: llm cache reaped %d locks, evicted %d entries\n", $stale, $evicted));

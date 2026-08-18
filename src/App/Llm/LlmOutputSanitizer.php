@@ -14,7 +14,7 @@ namespace Funnypot\App\Llm;
 final class LlmOutputSanitizer
 {
     /** Tags that must never appear (active content / redirect-y / structural injection). */
-    private const BAD_TAGS = ['<script', '<iframe', '<object', '<embed', '<link', '<style', '<base', '<meta http-equiv'];
+    private const BAD_TAGS = ['<script', '<iframe', '<object', '<embed', '<link', '<style', '<base'];
 
     /** Exploit-shaped substrings that a fake page never legitimately contains. */
     private const BAD_SUBSTRINGS = [
@@ -50,15 +50,22 @@ final class LlmOutputSanitizer
                 return null;
             }
         }
-        // Event-handler attributes (onload, onerror, onclick, ...).
-        if (preg_match('/\son[a-z]+\s*=/i', $s) === 1) {
+        // A <meta> carrying http-equiv (meta-refresh redirect / CSP games) — any whitespace, any order.
+        if (preg_match('~<meta\b[^>]*http-equiv~i', $s) === 1) {
             return null;
         }
-        // Absolute / external URLs in link-bearing attributes or CSS url() — no off-site beacon/SSRF.
-        if (preg_match('#(href|src|action)\s*=\s*["\\\']?\s*(https?:)?//#i', $s) === 1) {
+        // Event-handler attributes (onload, onerror, ...). The separator before the handler can be
+        // whitespace OR '/', so <body/onload=…> is caught, not only <body onload=…>.
+        if (preg_match('~[\s/]on[a-z]+\s*=~i', $s) === 1) {
             return null;
         }
-        if (preg_match('#url\(\s*["\\\']?\s*(https?:)?//#i', $s) === 1) {
+        // URL-bearing attributes may hold only same-origin relative URLs. Reject absolute /
+        // protocol-relative links (off-site beacon / SSRF) AND the active-content schemes
+        // javascript:/vbscript:/data:, which the grammar's attribute charset can still emit.
+        if (preg_match('~\b(?:href|src|action|formaction)\s*=\s*["\']?\s*(?:(?:https?|javascript|vbscript|data)\s*:|//)~i', $s) === 1) {
+            return null;
+        }
+        if (preg_match('~url\(\s*["\']?\s*(?:(?:https?|javascript|vbscript|data)\s*:|//)~i', $s) === 1) {
             return null;
         }
         foreach (self::BAD_SUBSTRINGS as $bad) {
