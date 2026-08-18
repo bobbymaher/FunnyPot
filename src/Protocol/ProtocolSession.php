@@ -22,6 +22,11 @@ final class ProtocolSession
     public bool $authed = false;
     public int $authTries = 0;
 
+    // Interactive line editing for the telnet-style shell: the in-progress line, and a flag to
+    // swallow the LF of a CR-LF pair so one Enter is one line whether the client sends \r, \r\n or \n.
+    public string $lineBuf = '';
+    public bool $swallowLf = false;
+
     public function __construct(public int $seed = 0)
     {
     }

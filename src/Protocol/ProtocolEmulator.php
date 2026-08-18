@@ -38,7 +38,15 @@ final class ProtocolEmulator
     /** Bytes to send the moment a connection opens (before any input), or '' for silent. */
     public function banner(ProtocolSession $s): string
     {
-        return $this->renderer->render((string) ($this->protocol['banner'] ?? ''), [], $s->seed);
+        $banner = $this->renderer->render((string) ($this->protocol['banner'] ?? ''), [], $s->seed);
+        // Interactive shell (telnet): negotiate server-side echo + character-at-a-time (IAC WILL
+        // ECHO, IAC WILL SGA) so a real telnet client hands us each keystroke and we own the line
+        // editing — otherwise the client's Enter (a bare CR) never terminates a line for us.
+        if (isset($this->protocol['shell'])) {
+            return "\xff\xfb\x01\xff\xfb\x03" . $banner;
+        }
+
+        return $banner;
     }
 
     /**
@@ -57,6 +65,12 @@ final class ProtocolEmulator
             $s->close = true; // drop a flooding client rather than buffer it
 
             return '';
+        }
+
+        // A shell protocol (telnet) is character-interactive: strip telnet IAC, edit the line, and
+        // echo — not the line-codec request/response loop the data protocols use.
+        if (isset($this->protocol['shell'])) {
+            return $this->interactiveFeed($s, $onRequest);
         }
 
         $out = '';
@@ -78,10 +92,6 @@ final class ProtocolEmulator
 
     private function respond(string $request, ProtocolSession $s): string
     {
-        if (isset($this->protocol['shell'])) {
-            return $this->shellRespond($request, $s);
-        }
-
         foreach ((array) ($this->protocol['rules'] ?? []) as $rule) {
             $caps = $this->match((array) ($rule['match'] ?? []), $request);
             if ($caps !== null) {
@@ -99,28 +109,146 @@ final class ProtocolEmulator
     }
 
     /**
-     * Shell protocols: accept-all login (login -> password) then a fake interactive shell that
-     * logs every typed command (via the feed() callback) and returns canned output. The shell
-     * never executes anything — see FakeShell.
+     * Character-interactive shell (telnet): consume the raw byte buffer, stripping telnet IAC
+     * negotiation, echoing input, and editing a line until Enter — then run the completed line
+     * through the login -> password -> shell state machine. A real telnet client sends each
+     * keystroke and terminates a line with a bare CR (\r), which the line codec never saw; this
+     * handles CR / CRLF / LF alike, plus backspace and Ctrl-C/D. Passwords are not echoed. Every
+     * completed line (creds + commands) is logged via $onRequest; the shell never executes input.
      */
-    private function shellRespond(string $request, ProtocolSession $s): string
+    private function interactiveFeed(ProtocolSession $s, ?callable $onRequest): string
     {
         $cfg = (array) $this->protocol['shell'];
         $host = (string) ($cfg['hostname'] ?? 'server');
+        $buf = $s->buffer;
+        $len = strlen($buf);
+        $i = 0;
+        $out = '';
 
+        while ($i < $len) {
+            $ch = $buf[$i];
+            $b = ord($ch);
+
+            // Telnet IAC (0xFF): consume the command/negotiation sequence, never treat it as input.
+            if ($b === 0xff) {
+                if ($i + 1 >= $len) {
+                    break; // incomplete IAC — leave it buffered for the next chunk
+                }
+                $cmd = ord($buf[$i + 1]);
+                if ($cmd === 0xfa) { // SB ... IAC SE subnegotiation
+                    $se = strpos($buf, "\xff\xf0", $i + 2);
+                    if ($se === false) {
+                        break;
+                    }
+                    $i = $se + 2;
+                    continue;
+                }
+                if ($cmd >= 0xfb && $cmd <= 0xfe) { // WILL/WONT/DO/DONT + option byte
+                    if ($i + 2 >= $len) {
+                        break;
+                    }
+                    $i += 3;
+                    continue;
+                }
+                $i += 2; // 2-byte command (incl. IAC IAC → literal 0xFF, dropped as a control byte)
+                continue;
+            }
+            $i++;
+
+            if ($s->swallowLf) {
+                $s->swallowLf = false;
+                if ($ch === "\n") {
+                    continue; // the LF half of a CR-LF Enter
+                }
+            }
+            if ($ch === "\r" || $ch === "\n") {
+                if ($ch === "\r") {
+                    $s->swallowLf = true;
+                }
+                $out .= "\r\n";
+                $line = $s->lineBuf;
+                $s->lineBuf = '';
+                $s->requests++;
+                $out .= $this->shellLine($line, $s, $host, $cfg, $onRequest);
+                if ($s->close || $s->requests >= self::MAX_REQUESTS) {
+                    $s->close = true;
+                    $s->buffer = '';
+
+                    return $out;
+                }
+                continue;
+            }
+            if ($ch === "\x7f" || $ch === "\x08") { // backspace / DEL
+                if ($s->lineBuf !== '') {
+                    $s->lineBuf = substr($s->lineBuf, 0, -1);
+                    if ($s->phase !== 'password') {
+                        $out .= "\x08 \x08";
+                    }
+                }
+                continue;
+            }
+            if ($ch === "\x03") { // Ctrl-C
+                $s->lineBuf = '';
+                $out .= "^C\r\n" . ($s->authed ? $this->prompt($s, $host) : '');
+                continue;
+            }
+            if ($ch === "\x04") { // Ctrl-D on an empty line ends the session
+                if ($s->lineBuf === '' && $s->authed) {
+                    $s->close = true;
+                    $s->buffer = '';
+
+                    return $out . "logout\r\n";
+                }
+                continue;
+            }
+            if ($b < 0x20) {
+                continue; // ignore other control bytes
+            }
+            if (strlen($s->lineBuf) < 4096) {
+                $s->lineBuf .= $ch;
+                if ($s->phase !== 'password') {
+                    $out .= $ch; // local echo, except while a password is being typed
+                }
+            }
+        }
+
+        $s->buffer = substr($buf, $i); // keep any incomplete IAC tail for the next chunk
+
+        return $out;
+    }
+
+    /** Run one completed shell line through the state machine and log it. */
+    private function shellLine(string $line, ProtocolSession $s, string $host, array $cfg, ?callable $onRequest): string
+    {
+        $resp = $this->shellLineResponse($line, $s, $host, $cfg);
+        if ($onRequest !== null) {
+            $onRequest($line, $resp);
+        }
+
+        return $resp;
+    }
+
+    /**
+     * The login -> password -> shell state machine for a completed line. Accept-all login (an
+     * optional reject_attempts refuses the first few); then each command runs through FakeShell.
+     *
+     * @param array<string,mixed> $cfg
+     */
+    private function shellLineResponse(string $line, ProtocolSession $s, string $host, array $cfg): string
+    {
         if (!$s->authed) {
             if ($s->phase !== 'password') {
-                $s->user = ($u = trim($request)) !== '' ? $u : 'root';
+                $s->user = ($u = trim($line)) !== '' ? $u : 'root';
                 $s->phase = 'password';
 
-                return (string) ($cfg['password_prompt'] ?? "Password: ");
+                return (string) ($cfg['password_prompt'] ?? 'Password: ');
             }
-            // password line — accept-all (optionally reject the first few for realism)
             $s->authTries++;
             if ($s->authTries <= (int) ($cfg['reject_attempts'] ?? 0)) {
                 $s->phase = 'login';
 
-                return "\r\nLogin incorrect\r\n" . (string) ($this->protocol['banner'] ?? '');
+                return "\r\nLogin incorrect\r\n"
+                    . $this->renderer->render((string) ($this->protocol['banner'] ?? ''), [], $s->seed);
             }
             $s->authed = true;
             $s->phase = 'shell';
@@ -129,14 +257,16 @@ final class ProtocolEmulator
             return (string) ($cfg['motd'] ?? "\r\nWelcome.\r\n\r\n") . $this->prompt($s, $host);
         }
 
-        $out = $this->fakeShell()->run($request, $s);
+        $out = $this->fakeShell()->run($line, $s);
 
         return $s->close ? $out : $out . $this->prompt($s, $host);
     }
 
     private function prompt(ProtocolSession $s, string $host): string
     {
-        return $s->user . '@' . $host . ':' . $s->cwd . ($s->user === 'root' ? '# ' : '$ ');
+        $cwd = $s->cwd === '/root' ? '~' : $s->cwd;
+
+        return $s->user . '@' . $host . ':' . $cwd . ($s->user === 'root' ? '# ' : '$ ');
     }
 
     private function fakeShell(): FakeShell
