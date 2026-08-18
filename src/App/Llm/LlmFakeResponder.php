@@ -41,10 +41,22 @@ final class LlmFakeResponder
         // error in the gate, a bad prepared statement, anything — must degrade to null (the plain
         // 404), never escape as a 500 that a scanner could use to tell the honeypot apart.
         try {
-            return $this->attempt($context, $clientIp);
+            $response = $this->attempt($context, $clientIp);
         } catch (\Throwable $e) {
             return null;
         }
+
+        // Log every served fake (cache hit or fresh) with the exact body the attacker got, so the
+        // operator can see what the model returned. Logging must never suppress a valid response.
+        if ($response !== null) {
+            try {
+                $this->logServed($context, $clientIp, $response);
+            } catch (\Throwable $e) {
+                // best-effort
+            }
+        }
+
+        return $response;
     }
 
     private function attempt(RequestContext $context, string $clientIp): ?SynthesizedResponse
@@ -87,7 +99,6 @@ final class LlmFakeResponder
             }
             $status = $this->chooseStatus($context->path);
             $this->cache->put($key, $status, 'text/html; charset=utf-8', $body, $this->promptVersion);
-            $this->logServed($context, $clientIp);
 
             return $this->build($status, $body);
         } finally {
@@ -114,7 +125,7 @@ final class LlmFakeResponder
         return 200;
     }
 
-    private function logServed(RequestContext $context, string $clientIp): void
+    private function logServed(RequestContext $context, string $clientIp, SynthesizedResponse $response): void
     {
         $this->store->append([
             'ts' => gmdate('c'),
@@ -126,7 +137,9 @@ final class LlmFakeResponder
             'severity' => 'info',
             'served' => true,
             'templates' => ['llm-fake'],
-            'style' => 'llm',
+            // The exact HTML the attacker received, so the operator can review what the model wrote.
+            // The store escapes non-printable bytes; the dashboard must render this as text, not HTML.
+            'body' => $response->body,
         ]);
     }
 }

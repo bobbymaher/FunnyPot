@@ -24,7 +24,8 @@ function rowEl(r){
   const tr=document.createElement('tr');tr.dataset.ip=r.ip||'';
   const badge=r.matched?`<span class="badge scan">SCAN ${esc((r.severity||'').toUpperCase())}</span>`:'<span class="badge miss">404</span>';
   const ids=(r.templates&&r.templates.length)?`<div class="ids">${esc(r.templates.join(', '))}</div>`:'';
-  const payload=r.body?`<div class="payload"><b>payload:</b> ${esc(r.body)}</div>`:'';
+  const bodyLabel=r.event==='llm-fake'?'response':'payload';
+  const payload=r.body?`<div class="payload"><b>${bodyLabel}:</b> ${esc(r.body)}</div>`:'';
   const served=r.served?'<span class="served">served</span>':'&mdash;';
   const cc=r.cc?` <span class="ids">${esc(r.cc)}</span>`:'';
   const known=r.known_attacker?' <span class="badge known" title="known attacker (threat-intel blocklist)">known</span>':'';
@@ -106,6 +107,31 @@ async function saveVulns(){
   if(j&&j.ok){$('vstat').textContent='saved '+(j.saved||0)+' — service changes need a listener restart';vChanges={};setTimeout(()=>{$('vmodal').hidden=true;},1100);}
   else{$('vstat').textContent='save failed';}
 }
+// --- LLM cache browser: list the generated fakes, read each body, delete bad ones ---
+const fmtBytes=n=>n<1024?n+' B':(n<1048576?(n/1024).toFixed(1)+' KB':(n/1048576).toFixed(1)+' MB');
+function llmRow(e){
+  const st=e.status===401?'miss':'served';            // 401 = auth-looking path, 200 = page
+  const when=esc((e.last_served_at||'').replace('T',' ').slice(0,19));
+  // Every field escaped; the body is model output rendered as TEXT (inside <pre>), never as HTML.
+  return `<div class=vrow data-key="${esc(e.key)}"><div class=vt>`
+    +`<div class=vn>${esc(e.key)}</div>`
+    +`<div class=vm><span class="badge ${st}">${e.status}</span> &middot; ${fmtBytes(e.bytes)} &middot; served ${e.served_count}&times; &middot; ${when}</div>`
+    +`<details class=llmbody><summary>view response</summary><pre>${esc(e.body)}</pre></details>`
+    +`</div><button class="btn lldel" data-key="${esc(e.key)}" title="delete this cached response">delete</button></div>`;
+}
+async function openLlmCache(){
+  const j=await adminReq('llm-cache');if(!j)return;
+  if(!j.enabled){$('llist').innerHTML='<p class=empty>LLM fakes are disabled (set FUNNYPOT_LLM=1).</p>';$('lstat').textContent='';$('lmodal').hidden=false;return;}
+  const es=j.entries||[],s=j.stats||{};
+  $('llist').innerHTML=es.length?es.map(llmRow).join(''):'<p class=empty>No cached responses yet.</p>';
+  $('lstat').textContent=(s.entries||0)+' entr'+(s.entries===1?'y':'ies')+' · '+fmtBytes(s.bytes||0)+' · '+(s.served||0)+' serves';
+  $('llist').querySelectorAll('.lldel').forEach(b=>b.onclick=()=>{if(confirm('Delete this cached response? It will regenerate on the next hit.'))llmDelete(b.dataset.key);});
+  $('lmodal').hidden=false;
+}
+async function llmDelete(key){
+  const j=await adminReq('llm-cache-delete','key='+encodeURIComponent(key));
+  if(j&&j.ok)openLlmCache();else alert('delete failed');
+}
 $('older').onclick=loadOlder;
 $('prune').onclick=()=>{if(confirm('Prune to the newest 1000 events?'))admin('prune','keep=1000');};
 $('clear').onclick=()=>{if(confirm('Delete ALL captured data? This cannot be undone.'))admin('clear');};
@@ -113,6 +139,10 @@ $('emul').onclick=openVulns;
 $('vclose').onclick=()=>{$('vmodal').hidden=true;};
 $('vsave').onclick=saveVulns;
 $('vsearch').oninput=e=>{const q=e.target.value.toLowerCase();$('vlist').querySelectorAll('.vrow').forEach(r=>{r.style.display=r.textContent.toLowerCase().includes(q)?'':'none';});};
+$('llmcache').onclick=openLlmCache;
+$('lclose').onclick=()=>{$('lmodal').hidden=true;};
+$('lclear').onclick=async()=>{if(!confirm('Delete ALL cached LLM responses? They will regenerate on the next hit.'))return;const j=await adminReq('llm-cache-clear');if(j)openLlmCache();};
+$('lsearch').oninput=e=>{const q=e.target.value.toLowerCase();$('llist').querySelectorAll('.vrow').forEach(r=>{r.style.display=r.textContent.toLowerCase().includes(q)?'':'none';});};
 $('filter').oninput=e=>{filter=e.target.value.trim();applyFilter();};
 // Quick views: each button carries a filter object in data-f; clicking one reloads the feed
 // narrowed server-side (e.g. "SSH commands" = method=SSH + event=command).

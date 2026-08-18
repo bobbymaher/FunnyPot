@@ -55,6 +55,77 @@ final class LlmFakeCache
         }
     }
 
+    /**
+     * All cached fakes for the operator dashboard, most-recently-served first. Bodies are included
+     * (each is small, capped by the sanitizer's maxBytes) so the operator can read a response and
+     * judge whether to delete it.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function all(int $limit = 1000): array
+    {
+        try {
+            $st = $this->db()->prepare(
+                'SELECT cache_key, status, content_type, prompt_version, created_at, last_served_at,
+                        served_count, LENGTH(body) AS bytes, body
+                 FROM llm_cache ORDER BY last_served_at DESC LIMIT :lim'
+            );
+            $st->bindValue(':lim', max(1, $limit), PDO::PARAM_INT);
+            $st->execute();
+
+            return array_map(static fn (array $r): array => [
+                'key' => (string) $r['cache_key'],
+                'status' => (int) $r['status'],
+                'content_type' => (string) $r['content_type'],
+                'prompt_version' => (string) $r['prompt_version'],
+                'created_at' => (string) $r['created_at'],
+                'last_served_at' => (string) $r['last_served_at'],
+                'served_count' => (int) $r['served_count'],
+                'bytes' => (int) $r['bytes'],
+                'body' => (string) $r['body'],
+            ], $st->fetchAll(PDO::FETCH_ASSOC) ?: []);
+        } catch (Throwable $e) {
+            return [];
+        }
+    }
+
+    /** Summary for the dashboard header: entry count, total body bytes, total serves. */
+    public function stats(): array
+    {
+        try {
+            $r = $this->db()->query(
+                'SELECT COUNT(*) n, COALESCE(SUM(LENGTH(body)),0) bytes, COALESCE(SUM(served_count),0) served FROM llm_cache'
+            )->fetch(PDO::FETCH_ASSOC) ?: [];
+
+            return ['entries' => (int) ($r['n'] ?? 0), 'bytes' => (int) ($r['bytes'] ?? 0), 'served' => (int) ($r['served'] ?? 0)];
+        } catch (Throwable $e) {
+            return ['entries' => 0, 'bytes' => 0, 'served' => 0];
+        }
+    }
+
+    /** Delete one cached fake the operator judged a bad response. True if a row was removed. */
+    public function delete(string $key): bool
+    {
+        try {
+            $st = $this->db()->prepare('DELETE FROM llm_cache WHERE cache_key = :k');
+            $st->execute([':k' => $key]);
+
+            return $st->rowCount() > 0;
+        } catch (Throwable $e) {
+            return false;
+        }
+    }
+
+    /** Drop every cached fake (operator reset). Returns how many were removed. */
+    public function clearAll(): int
+    {
+        try {
+            return (int) $this->db()->exec('DELETE FROM llm_cache');
+        } catch (Throwable $e) {
+            return 0;
+        }
+    }
+
     public const ACQUIRE_WON = 'won';   // this caller holds the lock and must generate
     public const ACQUIRE_BUSY = 'busy'; // another caller is already generating this same key
     public const ACQUIRE_FULL = 'full'; // the global concurrency cap is reached; do not generate

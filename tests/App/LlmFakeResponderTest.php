@@ -95,6 +95,19 @@ final class LlmFakeResponderTest extends TestCase
         self::assertSame(1, $calls);
     }
 
+    public function test_logs_the_served_response_body(): void
+    {
+        [$r, $store] = $this->make(fn (): array => ['status' => 200, 'body' => json_encode(['content' => self::GOOD_HTML])]);
+        $resp = $r->respond(new RequestContext('GET', '/super-rare-app/login.asp'), '9.9.9.9');
+        self::assertNotNull($resp);
+
+        // The served fake must be logged with the exact body the attacker got. The request is a
+        // bodyless GET, so any logged row carrying HTML is the llm-fake event.
+        $rows = $store->delta(0)['rows'];
+        $logged = array_filter($rows, static fn (array $row): bool => str_contains((string) ($row['body'] ?? ''), 'Sign in'));
+        self::assertNotEmpty($logged, 'the served LLM response body should be logged');
+    }
+
     public function test_gate_declines_probe_path_without_generating(): void
     {
         $calls = 0;

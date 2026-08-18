@@ -61,8 +61,12 @@ footer{color:var(--muted);margin-top:18px;font-size:12px}
 .vgroup .ga{color:var(--amber);cursor:pointer;font-size:11px;text-transform:none;letter-spacing:0}
 .vrow{display:flex;align-items:center;gap:12px;padding:7px 0;border-bottom:1px solid var(--line)}
 .vrow:last-child{border:0}.vrow .vt{flex:1;min-width:0}
-.vrow .vn{color:var(--ink)}.vrow.off .vn{color:var(--muted)}
+.vrow .vn{color:var(--ink);word-break:break-all}.vrow.off .vn{color:var(--muted)}
 .vrow .vm{color:var(--muted);font-size:12px}.vrow .cve{color:var(--amber);font-size:11px}
+.llmbody{margin-top:5px;font-size:12px}
+.llmbody summary{color:var(--amber);cursor:pointer;width:fit-content}
+.llmbody pre{margin:6px 0 0;padding:8px 10px;background:var(--bg);border:1px solid var(--line);border-radius:8px;max-height:320px;overflow:auto;white-space:pre-wrap;word-break:break-all;color:var(--muted)}
+.lldel{flex:0 0 auto;color:var(--muted)}.lldel:hover{border-color:var(--red);color:var(--red)}
 .sw{position:relative;width:40px;height:22px;flex:0 0 auto;cursor:pointer;margin:0}
 .sw input{opacity:0;width:0;height:0;position:absolute}
 .sw i{position:absolute;inset:0;background:var(--line);border-radius:999px;transition:.15s}

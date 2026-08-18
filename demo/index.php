@@ -67,12 +67,15 @@ $abuse = ($config->abuseIpdbReport && $config->abuseIpdbKey !== '')
 
 // LLM-generated fake responses for plausible unknown paths (opt-in, needs the funnypot-llm sidecar).
 // Every failure/decline falls through to the plain 404, so this only ever upgrades a 404.
+// One cache instance shared by the responder (read/write) and the dashboard (browse/delete). Lazy:
+// it only opens the SQLite file on first query, so it costs nothing when the feature is off.
+$llmCache = new LlmFakeCache($config->llmCacheDb);
 $llmFakes = null;
 if ($config->llmEnabled) {
     $breaker = new CircuitBreaker($config->llmCacheDb, $config->llmBreakerThreshold, $config->llmBreakerCooldownS);
     $llmFakes = new LlmFakeResponder(
         new ProbeGate(new ProbeClassifier(), new VelocityTracker(), $store),
-        new LlmFakeCache($config->llmCacheDb),
+        $llmCache,
         new LlmClient($config->llmUrl, $config->llmTimeoutMs, $config->llmNPredict, $breaker),
         new LlmOutputSanitizer(),
         $store,
@@ -84,6 +87,6 @@ if ($config->llmEnabled) {
 }
 
 $honeypot = new HoneypotController($store, $geo, $config, __DIR__ . '/decoys', $blocklist, $abuse, $llmFakes);
-$dashboard = new DashboardController($store, $geo, $config, __DIR__ . '/assets');
+$dashboard = new DashboardController($store, $geo, $config, __DIR__ . '/assets', $llmCache);
 $corporate = new CorporateController($store, $geo, $config, __DIR__ . '/assets', $blocklist);
 (new Router($config, $honeypot, $dashboard, $corporate))->dispatch($context, $clientIp, $tokenVerdict);

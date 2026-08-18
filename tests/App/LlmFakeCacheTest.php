@@ -55,6 +55,59 @@ final class LlmFakeCacheTest extends TestCase
         self::assertNull($c->get('GET /a', 'v2'));
     }
 
+    public function test_all_lists_entries_with_metadata(): void
+    {
+        $c = $this->cache();
+        $c->put('GET /alpha', 200, 'text/html', str_repeat('a', 120), 'v1');
+        $c->put('GET /beta', 401, 'text/html', str_repeat('b', 60), 'v1');
+        $c->get('GET /beta', 'v1');   // serve beta so it is most-recently-served
+
+        $all = $c->all();
+        self::assertCount(2, $all);
+        // Most-recently-served first: beta was just served.
+        self::assertSame('GET /beta', $all[0]['key']);
+        self::assertSame(401, $all[0]['status']);
+        self::assertSame(60, $all[0]['bytes']);
+        self::assertSame(1, $all[0]['served_count']);
+        self::assertSame(120, $all[1]['bytes']);
+        self::assertArrayHasKey('body', $all[0]);
+    }
+
+    public function test_stats_counts_entries_bytes_and_serves(): void
+    {
+        $c = $this->cache();
+        $c->put('GET /a', 200, 'text/html', str_repeat('x', 100), 'v1');
+        $c->put('GET /b', 200, 'text/html', str_repeat('y', 50), 'v1');
+        $c->get('GET /a', 'v1');
+        $c->get('GET /a', 'v1');
+
+        $s = $c->stats();
+        self::assertSame(2, $s['entries']);
+        self::assertSame(150, $s['bytes']);
+        self::assertSame(2, $s['served']);
+    }
+
+    public function test_delete_removes_one_entry(): void
+    {
+        $c = $this->cache();
+        $c->put('GET /keep', 200, 'text/html', 'body-keep-padding-xxxxxxxx', 'v1');
+        $c->put('GET /bad', 200, 'text/html', 'body-bad-padding-xxxxxxxxxx', 'v1');
+
+        self::assertTrue($c->delete('GET /bad'));
+        self::assertNull($c->get('GET /bad', 'v1'));
+        self::assertNotNull($c->get('GET /keep', 'v1'));
+        self::assertFalse($c->delete('GET /bad'));   // already gone
+    }
+
+    public function test_clear_all_empties_the_cache(): void
+    {
+        $c = $this->cache();
+        $c->put('GET /a', 200, 'text/html', 'padding-body-aaaaaaaaaa', 'v1');
+        $c->put('GET /b', 200, 'text/html', 'padding-body-bbbbbbbbbb', 'v1');
+        self::assertSame(2, $c->clearAll());
+        self::assertSame([], $c->all());
+    }
+
     public function test_cap_is_a_hard_ceiling(): void
     {
         $c = $this->cache();

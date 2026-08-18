@@ -6,6 +6,7 @@ namespace Funnypot\App\Http;
 
 use Funnypot\App\Config\AppConfig;
 use Funnypot\App\Storage\HitStore;
+use Funnypot\App\Storage\LlmFakeCache;
 use Funnypot\Policy\EmulationCatalog;
 use Funnypot\Policy\EmulationPolicy;
 use Geo;
@@ -22,6 +23,7 @@ final class DashboardController
         private Geo $geo,
         private AppConfig $config,
         private string $assetsDir,
+        private ?LlmFakeCache $llmCache = null,
     ) {
     }
 
@@ -155,6 +157,36 @@ final class DashboardController
             return;
         }
 
+        // LLM cache: list every generated fake (path, status, size, serve count, and the body the
+        // attacker got) so the operator can review what the model wrote.
+        if ($action === 'llm-cache') {
+            $flags = JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE;
+            echo json_encode([
+                'ok' => true,
+                'enabled' => $this->llmCache !== null,
+                'entries' => $this->llmCache !== null ? $this->llmCache->all(1000) : [],
+                'stats' => $this->llmCache !== null ? $this->llmCache->stats() : ['entries' => 0, 'bytes' => 0, 'served' => 0],
+            ], $flags);
+
+            return;
+        }
+
+        // LLM cache: delete one bad response by its cache key; it will regenerate on the next hit.
+        if ($action === 'llm-cache-delete') {
+            $key = (string) ($_POST['key'] ?? '');
+            $ok = $this->llmCache !== null && $key !== '' && $this->llmCache->delete($key);
+            echo json_encode(['ok' => $ok]);
+
+            return;
+        }
+
+        // LLM cache: drop every cached fake (operator reset).
+        if ($action === 'llm-cache-clear') {
+            echo json_encode(['ok' => true, 'cleared' => $this->llmCache !== null ? $this->llmCache->clearAll() : 0]);
+
+            return;
+        }
+
         http_response_code(400);
         echo json_encode(['error' => 'unknown action']);
     }
@@ -207,12 +239,17 @@ final class DashboardController
         echo "<table><thead><tr><th>time</th><th>ip</th><th>request</th><th>verdict</th><th>fake?</th></tr></thead>";
         echo "<tbody id=rows><tr><td colspan=5 class=empty>connecting&hellip;</td></tr></tbody></table>";
         echo "<div class=controls><button id=older class=btn>load older</button>";
-        echo "<span class=admin><button id=emul class=btn title='choose which vulnerabilities + services funnypot emulates'>emulations</button><button id=prune class=btn title='keep newest 1000 events'>prune</button><button id=clear class=btn>clear</button></span></div>";
+        echo "<span class=admin><button id=emul class=btn title='choose which vulnerabilities + services funnypot emulates'>emulations</button><button id=llmcache class=btn title='browse + delete LLM-generated fake responses'>llm cache</button><button id=prune class=btn title='keep newest 1000 events'>prune</button><button id=clear class=btn>clear</button></span></div>";
         echo "<footer>funnypot &mdash; a honeypot that turns scanner probes into wasted time. &middot; map &copy; OpenStreetMap, CARTO</footer>";
         echo "<div id=vmodal class=modal hidden><div class=modal-box>";
         echo "<div class=modal-head><b>Emulations</b><input id=vsearch class=filter placeholder='search&hellip;'><span class=grow></span><button id=vclose class=x title=close>&times;</button></div>";
         echo "<div id=vlist class=vlist></div>";
         echo "<div class=modal-foot><span id=vstat class=note style='margin:0'></span><span class=grow></span><button id=vsave class=btn>Save</button></div>";
+        echo "</div></div>";
+        echo "<div id=lmodal class=modal hidden><div class=modal-box>";
+        echo "<div class=modal-head><b>LLM cache</b><input id=lsearch class=filter placeholder='search path&hellip;'><span class=grow></span><button id=lclose class=x title=close>&times;</button></div>";
+        echo "<div id=llist class=vlist></div>";
+        echo "<div class=modal-foot><span id=lstat class=note style='margin:0'></span><span class=grow></span><button id=lclear class=btn>Clear all</button></div>";
         echo "</div></div>";
         echo "<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js' crossorigin></script>";
         echo '<script>window.FP_BASE=' . json_encode($base, JSON_UNESCAPED_SLASHES) . ';</script>';

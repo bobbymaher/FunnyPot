@@ -432,6 +432,7 @@ final class SqliteHitStore implements HitStore
             'served' => !empty($r['served']),
             'templates' => array_slice((array) json_decode((string) ($r['templates'] ?? '[]'), true), 0, 6),
             'body' => (string) ($r['body'] ?? ''),
+            'event' => (string) ($r['event'] ?? ''),
             'cc' => (string) ($r['cc'] ?? ''),
             'lat' => $r['lat'] !== null ? (float) $r['lat'] : null,
             'lon' => $r['lon'] !== null ? (float) $r['lon'] : null,
