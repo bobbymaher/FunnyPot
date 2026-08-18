@@ -26,6 +26,7 @@ use Funnypot\Honeypot;
 use Funnypot\Honeytoken;
 use Funnypot\Http\ResponseEmitter;
 use Funnypot\Log4ShellProbe;
+use Funnypot\Policy\EmulationCatalog;
 use Funnypot\Policy\EmulationPolicy;
 use Funnypot\RequestContext;
 
@@ -343,6 +344,41 @@ function demo_admin(Store $store, Geo $geo, string $action): void
         return;
     }
 
+    // Emulation catalog: read the full toggle list (catalog + resolved on/off state).
+    if ($action === 'vulns') {
+        $file = getenv('FUNNYPOT_VULNS') ?: __DIR__ . '/storage/funnypot-vulns.json';
+        $policy = EmulationPolicy::fromPackage(is_file($file) ? $file : null);
+        echo json_encode(['ok' => true, 'vulns' => array_values($policy->resolved())]);
+
+        return;
+    }
+
+    // Emulation catalog: persist toggle changes to funnypot-vulns.json.
+    if ($action === 'vulns-save') {
+        $file = getenv('FUNNYPOT_VULNS') ?: __DIR__ . '/storage/funnypot-vulns.json';
+        $changes = json_decode((string) ($_POST['changes'] ?? '[]'), true);
+        $catalog = EmulationCatalog::fromPackage();
+        $vulns = EmulationPolicy::fromCatalog($catalog, is_file($file) ? $file : null)->materialize();
+        $applied = 0;
+        foreach ((array) $changes as $id => $on) {
+            if (is_string($id) && $catalog->has($id)) {
+                $vulns[$id] = (bool) $on;
+                $applied++;
+            }
+        }
+        $payload = [
+            'version' => 1,
+            'updated' => gmdate('c'),
+            'note' => 'Toggle which emulations funnypot serves. true = serve, false = off.',
+            'vulns' => $vulns,
+        ];
+        @mkdir(dirname($file), 0777, true);
+        $wrote = @file_put_contents($file, json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n");
+        echo json_encode(['ok' => $wrote !== false, 'saved' => $applied]);
+
+        return;
+    }
+
     http_response_code(400);
     echo json_encode(['error' => 'unknown action']);
 }
@@ -405,6 +441,26 @@ function demo_render_shell(): void
       .admin{margin-left:auto;display:flex;gap:8px}.admin .btn{color:var(--muted)}
       .note{color:var(--muted);font-size:11px;margin-top:4px}
       footer{color:var(--muted);margin-top:18px;font-size:12px}
+      .modal{position:fixed;inset:0;background:rgba(0,0,0,.62);display:flex;align-items:center;justify-content:center;z-index:1000}
+      .modal[hidden]{display:none}
+      .modal-box{background:var(--panel);border:1px solid var(--line);border-radius:12px;width:min(780px,94vw);max-height:86vh;display:flex;flex-direction:column}
+      .modal-head,.modal-foot{display:flex;align-items:center;gap:10px;padding:12px 16px}
+      .modal-head{border-bottom:1px solid var(--line)}.modal-foot{border-top:1px solid var(--line)}
+      .modal-head b{font-size:15px}.modal-head .grow{margin-left:auto}
+      .modal .x{background:none;border:0;color:var(--muted);font-size:20px;cursor:pointer;line-height:1}
+      .vlist{overflow:auto;padding:2px 16px}
+      .vgroup{margin:14px 0 2px;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.06em;display:flex;gap:8px;align-items:center}
+      .vgroup .ga{color:var(--amber);cursor:pointer;font-size:11px;text-transform:none;letter-spacing:0}
+      .vrow{display:flex;align-items:center;gap:12px;padding:7px 0;border-bottom:1px solid var(--line)}
+      .vrow:last-child{border:0}.vrow .vt{flex:1;min-width:0}
+      .vrow .vn{color:var(--ink)}.vrow.off .vn{color:var(--muted)}
+      .vrow .vm{color:var(--muted);font-size:12px}.vrow .cve{color:var(--amber);font-size:11px}
+      .sw{position:relative;width:40px;height:22px;flex:0 0 auto;cursor:pointer;margin:0}
+      .sw input{opacity:0;width:0;height:0;position:absolute}
+      .sw i{position:absolute;inset:0;background:var(--line);border-radius:999px;transition:.15s}
+      .sw i:before{content:'';position:absolute;width:16px;height:16px;left:3px;top:3px;background:var(--muted);border-radius:50%;transition:.15s}
+      .sw input:checked + i{background:rgba(240,180,0,.35)}
+      .sw input:checked + i:before{transform:translateX(18px);background:var(--amber)}
     CSS;
 
     $js = <<<'JS'
@@ -474,15 +530,51 @@ function demo_render_shell(): void
         }finally{b.disabled=false;}
       }
       function token(){let t=sessionStorage.getItem('fp_admin');if(!t){t=prompt('Admin password')||'';if(t)sessionStorage.setItem('fp_admin',t);}return t;}
-      async function admin(action,body){
-        const t=token();if(!t)return;
+      async function adminReq(action,body){
+        const t=token();if(!t)return null;
         const r=await fetch('/?admin='+action,{method:'POST',headers:{'X-Admin-Token':t,'Content-Type':'application/x-www-form-urlencoded'},body:body||''});
-        if(r.status===403){sessionStorage.removeItem('fp_admin');alert('Admin disabled server-side, or wrong password.');return;}
-        alert(JSON.stringify(await r.json()));cursor=0;older=0;seen.clear();tick();
+        if(r.status===403){sessionStorage.removeItem('fp_admin');alert('Admin disabled server-side, or wrong password.');return null;}
+        return r.json();
+      }
+      async function admin(action,body){const j=await adminReq(action,body);if(!j)return;alert(JSON.stringify(j));cursor=0;older=0;seen.clear();tick();}
+      // --- emulation catalog panel: read the catalog + toggle what funnypot serves ---
+      const KIND_LABEL={attack:'Attack classes',service:'Protocol services',route:'Product decoys',corpus:'Nuclei corpus'};
+      let vChanges={};
+      const vstat=()=>{const n=Object.keys(vChanges).length;$('vstat').textContent=n?n+' change(s) pending':'';};
+      function setVuln(row,on){vChanges[row.dataset.id]=on;row.classList.toggle('off',!on);vstat();}
+      async function openVulns(){
+        const j=await adminReq('vulns');if(!j)return;if(!j.ok){alert('No catalog compiled.');return;}
+        vChanges={};
+        const groups={};(j.vulns||[]).forEach(v=>{(groups[v.kind]=groups[v.kind]||[]).push(v);});
+        let html='';
+        ['attack','service','route','corpus'].forEach(kind=>{
+          const items=groups[kind];if(!items)return;
+          const on=items.filter(v=>v.enabled).length;
+          html+=`<div class=vgroup><span>${esc(KIND_LABEL[kind]||kind)} <span class=ids>(${on}/${items.length})</span></span><span class=grow></span><span class=ga data-k="${kind}" data-on=1>all on</span><span class=ga data-k="${kind}" data-on=0>all off</span></div>`;
+          items.forEach(v=>{
+            const cve=v.cve?` <span class=cve>${esc(v.cve)}</span>`:'';
+            const ports=(v.ports&&v.ports.length)?' :'+v.ports.join(','):'';
+            html+=`<div class="vrow${v.enabled?'':' off'}" data-id="${esc(v.id)}" data-kind="${kind}"><div class=vt><div class=vn>${esc(v.title||v.id)}${cve}</div><div class=vm>${esc(v.id)} &middot; ${esc(v.severity||'')}${esc(ports)}</div></div><label class=sw><input type=checkbox ${v.enabled?'checked':''}><i></i></label></div>`;
+          });
+        });
+        $('vlist').innerHTML=html||'<p class=empty>No catalog compiled.</p>';
+        $('vlist').querySelectorAll('.vrow input').forEach(inp=>inp.onchange=()=>setVuln(inp.closest('.vrow'),inp.checked));
+        $('vlist').querySelectorAll('.ga').forEach(a=>a.onclick=()=>{const on=a.dataset.on==='1';$('vlist').querySelectorAll('.vrow[data-kind="'+a.dataset.k+'"]').forEach(r=>{const inp=r.querySelector('input');if(inp.checked!==on){inp.checked=on;setVuln(r,on);}});});
+        vstat();$('vmodal').hidden=false;
+      }
+      async function saveVulns(){
+        if(!Object.keys(vChanges).length){$('vmodal').hidden=true;return;}
+        const j=await adminReq('vulns-save','changes='+encodeURIComponent(JSON.stringify(vChanges)));
+        if(j&&j.ok){$('vstat').textContent='saved '+(j.saved||0)+' — service changes need a listener restart';vChanges={};setTimeout(()=>{$('vmodal').hidden=true;},1100);}
+        else{$('vstat').textContent='save failed';}
       }
       $('older').onclick=loadOlder;
       $('prune').onclick=()=>{if(confirm('Prune to the newest 1000 events?'))admin('prune','keep=1000');};
       $('clear').onclick=()=>{if(confirm('Delete ALL captured data? This cannot be undone.'))admin('clear');};
+      $('emul').onclick=openVulns;
+      $('vclose').onclick=()=>{$('vmodal').hidden=true;};
+      $('vsave').onclick=saveVulns;
+      $('vsearch').oninput=e=>{const q=e.target.value.toLowerCase();$('vlist').querySelectorAll('.vrow').forEach(r=>{r.style.display=r.textContent.toLowerCase().includes(q)?'':'none';});};
       $('filter').oninput=e=>{filter=e.target.value.trim();applyFilter();};
       initMap();tick();setInterval(tick,3000);
     JS;
@@ -513,8 +605,15 @@ function demo_render_shell(): void
     echo "<table><thead><tr><th>time</th><th>ip</th><th>request</th><th>verdict</th><th>fake?</th></tr></thead>";
     echo "<tbody id=rows><tr><td colspan=5 class=empty>connecting&hellip;</td></tr></tbody></table>";
     echo "<div class=controls><button id=older class=btn>load older</button>";
-    echo "<span class=admin><button id=prune class=btn title='keep newest 1000 events'>prune</button><button id=clear class=btn>clear</button></span></div>";
+    echo "<span class=admin><button id=emul class=btn title='choose which vulnerabilities + services funnypot emulates'>emulations</button><button id=prune class=btn title='keep newest 1000 events'>prune</button><button id=clear class=btn>clear</button></span></div>";
     echo "<footer>funnypot &mdash; a honeypot that turns scanner probes into wasted time. &middot; map &copy; OpenStreetMap, CARTO</footer>";
+    // Emulation-catalog panel: toggle which attack classes, services, decoys and the nuclei corpus
+    // funnypot serves. Reads the catalog + saves to funnypot-vulns.json (admin-gated).
+    echo "<div id=vmodal class=modal hidden><div class=modal-box>";
+    echo "<div class=modal-head><b>Emulations</b><input id=vsearch class=filter placeholder='search&hellip;'><span class=grow></span><button id=vclose class=x title=close>&times;</button></div>";
+    echo "<div id=vlist class=vlist></div>";
+    echo "<div class=modal-foot><span id=vstat class=note style='margin:0'></span><span class=grow></span><button id=vsave class=btn>Save</button></div>";
+    echo "</div></div>";
     echo "<script src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js' crossorigin></script>";
     echo "<script>{$js}</script>";
     echo "</div></body></html>";
