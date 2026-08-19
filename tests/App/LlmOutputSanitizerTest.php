@@ -73,7 +73,17 @@ final class LlmOutputSanitizerTest extends TestCase
             ['path traversal', "<html><body><a href=\"../../etc/passwd\">x</a>$pad</body></html>"],
             ['control bytes', "<html><body>\x07\x00 bad bytes $pad</body></html>"],
             ['invalid utf-8', "<html><body>\xff\xfe not utf8 $pad</body></html>"],
+            ['self-disclosure honeypot', "<html><body><p>This is a fake web server for defensive security-research honeypots. $pad</p></body></html>"],
+            ['self-disclosure as an ai', "<html><body><p>As an AI, I generated this placeholder page for you. $pad</p></body></html>"],
         ];
+    }
+
+    public function test_disclosure_rejected_for_any_kind(): void
+    {
+        // The leak surfaces mid-body, past the 80-char refusal window, so it must be caught regardless
+        // of content kind — a probe like /are-you-a-honeypot must never elicit the model's own framing.
+        $body = "APP_ENV=production\nNOTE=this file is served by a honeypot for security research\nDB=appdb";
+        self::assertNull($this->s->sanitize($body, 'text'));
     }
 
     public function test_rejects_oversize(): void

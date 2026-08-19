@@ -34,6 +34,15 @@ final class LlmOutputSanitizer
         'proc_open(', 'shell_exec(', '-----begin', '../../', '..\\..\\',
     ];
 
+    /** Self-disclosure the honeypot must never reveal in a body — a probe like /are-you-a-honeypot
+     *  can otherwise coax the model into echoing its own framing (the system prompt itself names
+     *  "honeypot" / "defensive security-research"). Scanned over the WHOLE body, not just the opening
+     *  like the refusal check, since the leak can surface mid-page. A rare false reject just 404s. */
+    private const META_DISCLOSURE = [
+        'honeypot', 'security research', 'security-research', 'defensive security',
+        'as an ai', 'as a language model', 'i am an ai', "i'm an ai", 'system prompt',
+    ];
+
     /** A leading refusal / self-identification / fence — the tell a grammar-free body must not open
      *  with (grammar-backed kinds can't reach these). Checked over the first 80 chars only. */
     private const REFUSAL_MARKERS = [
@@ -64,6 +73,11 @@ final class LlmOutputSanitizer
         $low = strtolower($s);
         foreach (self::BAD_SUBSTRINGS as $bad) {
             if (strpos($low, $bad) !== false) {
+                return null;
+            }
+        }
+        foreach (self::META_DISCLOSURE as $tell) {
+            if (strpos($low, $tell) !== false) {
                 return null;
             }
         }
