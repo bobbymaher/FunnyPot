@@ -27,7 +27,7 @@ matters because CRS maps cleanly onto the second, not the first.
 Nuclei templates are never vendored into the repo; they're pulled from
 `projectdiscovery/nuclei-templates` (external, MIT) at build time only.
 
-- **Parser**: `vendor/bobbymaher/funnypot-core/src/Compiler/TemplateLoader.php:22` (`loadFile()`) and
+- **Parser**: `vendor/metrictower/funnypot-core/src/Compiler/TemplateLoader.php:22` (`loadFile()`) and
   `:45` (`fromArray()`). Parses nuclei's YAML `http:`/`requests:` block into a `LoadedTemplate`:
   id, severity, tags, product (from `info.metadata.product`), method, paths, matchers,
   `matchers-condition`, `requestCount`, `flow` presence, and an `eligibility` bag (raw/payloads/
@@ -52,7 +52,7 @@ Nuclei templates are never vendored into the repo; they're pulled from
   zero parsing/regex evaluation at request time for this corpus** — the update workflow's own comment
   says it plainly: *"parsing/compiling happens HERE, once. Consumers never parse templates; they just
   `composer update`."*
-- **Update automation**: `vendor/bobbymaher/funnypot-core/.github/workflows/update-templates.yml`.
+- **Update automation**: `vendor/metrictower/funnypot-core/.github/workflows/update-templates.yml`.
   Weekly cron (Mondays 06:00 UTC) + `workflow_dispatch` with a `tag` override. Resolves the latest
   `nuclei-templates` git tag → shallow-clones it → `bin/funnypot compile /tmp/nuclei-templates/http
   --out=resources/compiled/nuclei-index.full.php` (lines 57-60) → recompiles funnypot's OWN
@@ -97,7 +97,7 @@ or `header:Name`. `response.body`/`headers` may use a small CLOSED directive voc
 (seeded-per-persona fabricated secret), `{{match.N}}` (bounded reflection of a regex capture, only
 when the template author sets `capture: true` on that condition), `{{pick:a,b,c}}`, `{{canary.KEY}}`.
 
-- **Compiler**: `vendor/bobbymaher/funnypot-core/src/Compiler/EmulatorCompiler.php`. Rule ORDER is
+- **Compiler**: `vendor/metrictower/funnypot-core/src/Compiler/EmulatorCompiler.php`. Rule ORDER is
   first-match-wins, controlled by an explicit `priority:` field (lower first, then `id`) — the `NN-`
   filename prefix is purely cosmetic (`EmulatorCompiler.php:16-17`, sort at `:51-53`). Build-time lints
   make "compiles but silently wrong" a hard failure: duplicate ids reject (`:43-46`), every `{{...}}`
@@ -321,7 +321,7 @@ request, nothing stored."* CRS import must uphold that as the DEFAULT, not the e
 ## (f) Auto-update GitHub Action sketch
 
 Mirrors `update-templates.yml` closely; new workflow (e.g.
-`vendor/bobbymaher/funnypot-core/.github/workflows/update-crs.yml`), staggered cron so PRs don't
+`vendor/metrictower/funnypot-core/.github/workflows/update-crs.yml`), staggered cron so PRs don't
 collide (e.g. Wednesdays 06:00 UTC vs nuclei's Mondays):
 
 ```yaml
@@ -413,7 +413,7 @@ is cheap and already meaningfully non-circular.
 
 ## Sources consulted
 
-- `vendor/bobbymaher/funnypot-core/src/Compiler/{TemplateLoader,Compiler,ClusterableFilter,
+- `vendor/metrictower/funnypot-core/src/Compiler/{TemplateLoader,Compiler,ClusterableFilter,
   EmulatorCompiler,ArtifactWriter}.php`, `src/Template/{TemplateAttackEmulator,
   DirectiveRenderer}.php`, `SPEC.md`, `README.md`, `composer.json`,
   `.github/workflows/update-templates.yml`, `bin/funnypot`, `templates/attack/*.yaml` (all 31 read

@@ -134,7 +134,7 @@ final class EmulationCatalogTest extends TestCase
 
     public function test_honeypot_does_not_serve_a_disabled_attack(): void
     {
-        $store = new PhpArrayStore(require __DIR__ . '/../vendor/bobbymaher/funnypot-core/resources/compiled/nuclei-index.php');
+        $store = new PhpArrayStore(require __DIR__ . '/../vendor/metrictower/funnypot-core/resources/compiled/nuclei-index.php');
         $catalog = EmulationCatalog::fromPackage();
         $lfi = new RequestContext('GET', '/nope', 'file=../../etc/passwd');
         $mk = static fn (EmulationPolicy $p): Honeypot => new Honeypot($store, new Config(
@@ -156,7 +156,7 @@ final class EmulationCatalogTest extends TestCase
 
     public function test_honeypot_nuclei_group_toggle_suppresses_corpus(): void
     {
-        $store = new PhpArrayStore(require __DIR__ . '/../vendor/bobbymaher/funnypot-core/resources/compiled/nuclei-index.php');
+        $store = new PhpArrayStore(require __DIR__ . '/../vendor/metrictower/funnypot-core/resources/compiled/nuclei-index.php');
         $catalog = EmulationCatalog::fromPackage();
         $git = new RequestContext('GET', '/.git/config');
         $mk = static fn (EmulationPolicy $p): Honeypot => new Honeypot($store, new Config(

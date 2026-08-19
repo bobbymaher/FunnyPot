@@ -2,7 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![PHP](https://img.shields.io/badge/php-%3E%3D8.0-777bb3.svg)](composer.json)
-[![Engine](https://img.shields.io/badge/engine-funnypot--core-blue.svg)](https://github.com/bobbymaher/funnypot-core)
+[![Engine](https://img.shields.io/badge/engine-funnypot--core-blue.svg)](https://github.com/metrictower/funnypot-core)
 
 **A honeypot that answers a scanner's probe with the fake-vulnerable response it was fishing for.**
 
@@ -16,7 +16,7 @@ box. It runs the HTTP deception engine across the common web ports and adds 18 T
 (a real pure-PHP SSH server, a telnet fake shell, redis, ftp, smtp, mysql, postgres, mongodb, modbus and
 more). It ships with a live dashboard and an admin panel to switch each fake on or off.
 
-The HTTP engine itself is a separate Composer package, [`bobbymaher/funnypot-core`](https://github.com/bobbymaher/funnypot-core).
+The HTTP engine itself is a separate Composer package, [`metrictower/funnypot-core`](https://github.com/metrictower/funnypot-core).
 Use that if you want to drop the inversion engine into your own Laravel or PSR-15 app instead of running
 the box. This app depends on it.
 
@@ -131,7 +131,7 @@ Run a whole scan against it and dozens of "findings" light up on the dashboard:
 | **Emulation catalog** | Auto-registering list of every capability; a sparse JSON file, or the dashboard, toggles each on or off. |
 | **Anti-fingerprint** | One coherent product persona per attacker (deterministic, spoof-proof seed) instead of an impossible "vulnerable to everything" host. Per-host self-signed certs, consistent `X-Powered-By`, a tamper-evident honeytoken cookie. |
 
-The attack, decoy and nuclei-corpus capabilities all come from the [`funnypot-core`](https://github.com/bobbymaher/funnypot-core)
+The attack, decoy and nuclei-corpus capabilities all come from the [`funnypot-core`](https://github.com/metrictower/funnypot-core)
 engine. The SSH server, the TCP protocol emulators and the dashboard live in this repo.
 
 ---
@@ -185,11 +185,11 @@ If you want the HTTP inversion engine inside an existing app rather than a whole
 Composer package instead of this repo:
 
 ```bash
-composer require bobbymaher/funnypot-core
+composer require metrictower/funnypot-core
 ```
 
 It is inert by default (detect-only, gate closed), with an opt-in respond mode and a Laravel drop-in. See
-the [funnypot-core README](https://github.com/bobbymaher/funnypot-core) for the integration guide.
+the [funnypot-core README](https://github.com/metrictower/funnypot-core) for the integration guide.
 
 ## Testing
 
@@ -198,7 +198,7 @@ composer install
 vendor/bin/phpunit          # app suite: SSH handshake/transport, protocol emulators, the catalog
 ```
 
-The engine has its own test suite in the [`funnypot-core`](https://github.com/bobbymaher/funnypot-core) repo,
+The engine has its own test suite in the [`funnypot-core`](https://github.com/metrictower/funnypot-core) repo,
 including a golden test that runs real nuclei against a live server.
 
 ## Build-time helpers
@@ -217,11 +217,11 @@ bin/funnypot vulns:sync            # refresh the on/off toggle list
 - [`demo/README.md`](demo/README.md): running the standalone honeypot.
 - [`docs/EMULATION-CATALOG.md`](docs/EMULATION-CATALOG.md): the configurable capability surface.
 - [`docs/PROTOCOL-HONEYPOT-PLAN.md`](docs/PROTOCOL-HONEYPOT-PLAN.md): the TCP service emulators and SSH server.
-- [funnypot-core](https://github.com/bobbymaher/funnypot-core): the HTTP inversion engine, its spec and its integration guide.
+- [funnypot-core](https://github.com/metrictower/funnypot-core): the HTTP inversion engine, its spec and its integration guide.
 
 ## Licence
 
 MIT. See [LICENSE](LICENSE). The nuclei inversion engine is derived in part from
 [projectdiscovery/nuclei-templates](https://github.com/projectdiscovery/nuclei-templates)
 (MIT, © 2025 ProjectDiscovery, Inc.); the upstream notice ships with the
-[funnypot-core](https://github.com/bobbymaher/funnypot-core) engine.
+[funnypot-core](https://github.com/metrictower/funnypot-core) engine.

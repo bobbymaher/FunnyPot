@@ -3,7 +3,7 @@
 #   docker build -f demo/Dockerfile -t funnypot .
 #   docker run --rm -p 80:80 -p 443:443 -p 8080:8080 -p 2222:2222 funnypot
 
-# --- deps: resolve the HTTP engine (bobbymaher/funnypot-core) + its deps into vendor/ ---
+# --- deps: resolve the HTTP engine (metrictower/funnypot-core) + its deps into vendor/ ---
 # funnypot-core is pulled from its GitHub repo (a vcs repository in composer.json) until it is on
 # Packagist. Platform reqs (ext-sodium/openssl) are checked in the runtime image, not here.
 FROM composer:2 AS deps

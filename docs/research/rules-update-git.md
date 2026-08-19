@@ -16,7 +16,7 @@ doc is entirely about what happens **after** that PR merges: how a consumer 6 mo
 ## 0. Grounding — today's load path (why this is needed)
 
 Compiled artifacts are literal PHP arrays, shipped *inside* the funnypot-core git repo,
-installed wherever composer puts `vendor/bobbymaher/funnypot-core/`:
+installed wherever composer puts `vendor/metrictower/funnypot-core/`:
 
 - `PhpArrayStore::fromPackage()` — `src/Store/PhpArrayStore.php:79-82` — hardcodes
   `dirname(__DIR__, 2) . '/resources/compiled/nuclei-index.full.php'`, i.e. a path computed
@@ -87,7 +87,7 @@ Three actors, three trust boundaries:
 ## 2. funnypot-rules repo layout
 
 ```
-funnypot-rules/                          (github.com/bobbymaher/funnypot-rules, MIT)
+funnypot-rules/                          (github.com/metrictower/funnypot-rules, MIT)
   rules/
     nuclei-index.full.php                # from funnypot-core resources/compiled/
     funnypot-attack.php
@@ -324,7 +324,7 @@ final class RulesUpdater
 {
     public function __construct(
         private string $dataDir,
-        private string $repoUrl = 'https://github.com/bobbymaher/funnypot-rules.git',
+        private string $repoUrl = 'https://github.com/metrictower/funnypot-rules.git',
         private string $channel = 'stable',
         private ?string $pinnedRef = null,     // exact tag/sha; overrides channel resolution
         private int $keepReleases = 3,
@@ -440,7 +440,7 @@ inert-by-default knobs:
 ```php
 'rules_channel'    => env('FUNNYPOT_RULES_CHANNEL', 'stable'),
 'rules_pinned_ref' => env('FUNNYPOT_RULES_PIN', null),
-'rules_repo'       => env('FUNNYPOT_RULES_REPO', 'https://github.com/bobbymaher/funnypot-rules.git'),
+'rules_repo'       => env('FUNNYPOT_RULES_REPO', 'https://github.com/metrictower/funnypot-rules.git'),
 'rules_data_dir'   => env('FUNNYPOT_RULES_DIR', storage_path('funnypot-rules')),
 ```
 

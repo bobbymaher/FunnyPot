@@ -11,7 +11,7 @@ declare(strict_types=1);
  *   funnypot vulns:sync [--out=funnypot-vulns.json]   materialise the on/off toggle list
  *   funnypot vulns:list [--file=funnypot-vulns.json]
  *
- * The HTTP engine (nuclei inversion, attack/route emulators) lives in bobbymaher/funnypot-core and
+ * The HTTP engine (nuclei inversion, attack/route emulators) lives in metrictower/funnypot-core and
  * has its own `compile` commands; this CLI only owns the app-side artifacts. Needs `composer install`.
  */
 
@@ -60,7 +60,7 @@ if ($command === 'compile-protocols') {
 if ($command === 'compile-catalog') {
     // The catalog spans the engine's attack/route templates (from vendor) and the app's protocol
     // templates + nuclei corpus count.
-    $engineRoot = $root . '/vendor/bobbymaher/funnypot-core';
+    $engineRoot = $root . '/vendor/metrictower/funnypot-core';
     if (!is_dir($engineRoot . '/templates/attack')) {
         $engineRoot = $root; // mono-repo / local fallback
     }

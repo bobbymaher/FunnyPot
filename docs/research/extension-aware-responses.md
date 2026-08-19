@@ -254,8 +254,8 @@ A small value object `LlmResponseProfile {kind, contentType, LlmPromptBuilder $p
 $grammar}` plus a resolver, e.g. `LlmResponseProfiles::resolve(string $path): LlmResponseProfile`,
 built from the extension table in section 1. Extension extraction is a small local
 `pathinfo($path, PATHINFO_EXTENSION)`-style helper kept in this new app-local class — **not** added
-to the vendored `bobbymaher/funnypot-core` package's `PathNormalizer`
-(`vendor/bobbymaher/funnypot-core/src/Support/PathNormalizer.php`), since which extensions map to
+to the vendored `metrictower/funnypot-core` package's `PathNormalizer`
+(`vendor/metrictower/funnypot-core/src/Support/PathNormalizer.php`), since which extensions map to
 which fake-content kind is honeypot-app policy, not a core routing primitive. This mirrors existing
 precedent: `ProbeClassifier::ext()`/`stem()` (`src/App/Llm/ProbeClassifier.php:161-175`) are already
 private, app-local, ad hoc extension helpers rather than shared vendor utilities — a second small
@@ -294,7 +294,7 @@ What **is** required: bump `FUNNYPOT_LLM_PROMPT_VERSION`'s default from `v1` to 
    itself is untouched.
 
 Cache key itself (`PathNormalizer::key($method, $path)`,
-`vendor/bobbymaher/funnypot-core/src/Support/PathNormalizer.php:49-52`) needs no change — it's
+`vendor/metrictower/funnypot-core/src/Support/PathNormalizer.php:49-52`) needs no change — it's
 already the full byte-identical path including extension, so `GET /x.js` and `GET /x.json` are
 already distinct keys today.
 

@@ -1,7 +1,7 @@
 # FunnyPot Standalone-App Redesign — Brainstorm
 
 Status: brainstorm to react to, not final code. funnypot-core (the HTTP nuclei-inversion
-engine, `bobbymaher/funnypot-core` v0.1.0) is FROZEN. This document only redesigns the app
+engine, `metrictower/funnypot-core` v0.1.0) is FROZEN. This document only redesigns the app
 that consumes it.
 
 ---

@@ -50,7 +50,7 @@ Today's actual "update": `.github/workflows/update-templates.yml` and `update-cr
 `scripts/ci/check-fingerprint-safety.php` (both already implemented and already wired into
 both workflows — confirmed by reading the files directly, not just SPEC.md), and open a PR
 against `funnypot-core` itself. A human merges it. Every consumer then needs
-`composer update bobbymaher/funnypot-core` (or a version bump + redeploy) to see it. That
+`composer update metrictower/funnypot-core` (or a version bump + redeploy) to see it. That
 composer round-trip, multiplied across every app/server that embeds the package, is the
 "too heavy" problem this doc solves.
 
@@ -88,10 +88,10 @@ without re-deriving them.
 
 ## 3. `funnypot-rules` layout
 
-A GitHub repo, `bobbymaher/funnypot-rules`, deliberately shaped like a Composer package
+A GitHub repo, `metrictower/funnypot-rules`, deliberately shaped like a Composer package
 (real `composer.json`, real SemVer git tags: `vYYYY.WW.N` — year.ISO-week.sequence, so a
 version sorts by recency and two releases in the same week are still ordered) **so a team
-that wants a normal `composer require bobbymaher/funnypot-rules` can still have one** — but
+that wants a normal `composer require metrictower/funnypot-rules` can still have one** — but
 the primary distribution channel is GitHub Release assets, fetched directly, not through a
 running `composer` process. See [§8](#8-why-not-oci--cosign-the-honest-comparison) for why
 that split.
@@ -168,7 +168,7 @@ can't interpret.
 
 ## 4. Transport
 
-Plain HTTPS `GET` against `github.com/bobbymaher/funnypot-rules/releases/download/<tag>/<asset>`.
+Plain HTTPS `GET` against `github.com/metrictower/funnypot-rules/releases/download/<tag>/<asset>`.
 GitHub redirects release-asset downloads to `objects.githubusercontent.com`, which is
 Fastly-fronted — the same CDN tier `ghcr.io` itself rides on, so choosing Releases over an
 OCI registry costs nothing in cache hit rate or global distribution. Public repo, no
@@ -548,7 +548,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: bobbymaher/funnypot-core
+          repository: metrictower/funnypot-core
       - name: Verify HEAD already passed the compile workflow
         run: gh run list --workflow=update-templates.yml --branch=main --status=success --limit=1 --json headSha \
           | jq -e ".[0].headSha == \"$(git rev-parse HEAD)\""
@@ -568,7 +568,7 @@ jobs:
       - name: Tag + upload release assets to funnypot-rules
         uses: softprops/action-gh-release@v2
         with:
-          repository: bobbymaher/funnypot-rules
+          repository: metrictower/funnypot-rules
           tag_name: ${{ env.TAG }}
           files: |
             funnypot-rules-${TAG}.tar.gz

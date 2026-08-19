@@ -30,7 +30,7 @@ Every runtime artifact is loaded by a `fromPackage()` static that resolves a pat
 `Honeypot::default()` wires the first two together at construction
 (`funnypot-core/src/Honeypot.php:57`, `:65-68`), and `EmulatorRegistry::default()`
 wires the third (`funnypot-core/src/Response/EmulatorRegistry.php:24-26`). All four
-resolve **inside `vendor/bobbymaher/funnypot-core/...`** (or the app's own `resources/`
+resolve **inside `vendor/metrictower/funnypot-core/...`** (or the app's own `resources/`
 for the catalog) — there is no writable-directory concept anywhere in this resolution
 chain today. `PhpArrayStore::fromFile()` also keeps a static, per-path, per-process
 `$fileCache` (`PhpArrayStore.php:47,56-71`) — the compiled index is 6MB, so a
@@ -106,7 +106,7 @@ app/                            # optional — present only when the triggering 
 
 `engine/` vs `app/` matters because the two live in different repos with different
 release cadences today (funnypot-core's compiled index vs. the funnypot app's catalog).
-A consumer that only requires `bobbymaher/funnypot-core` only ever reads `engine/`; the
+A consumer that only requires `metrictower/funnypot-core` only ever reads `engine/`; the
 funnypot app reads both. One tarball, one signature, one verify — not two channels to
 separately trust.
 
@@ -202,7 +202,7 @@ jobs:
 manifest.json,crs-manifest.json}` into `engine/`, `sodium_crypto_sign_detached()`s the
 tarball with the key from `FUNNYPOT_RULES_SIGNING_KEY`, and calls the GitHub Releases
 API (via `FUNNYPOT_RULES_RELEASE_TOKEN`, a fine-grained PAT scoped to
-`contents:write` on **only** `bobbymaher/funnypot-rules`, nothing else) to create the
+`contents:write` on **only** `metrictower/funnypot-rules`, nothing else) to create the
 release and upload the three assets, then updates and re-signs `channels.json` (§6).
 
 ---
@@ -298,7 +298,7 @@ not a new invention:
    backward even if fed a validly-signed-but-superseded old tarball (a freeze/downgrade
    attack otherwise has no mitigation once a single signature check passes).
 4. Download the tarball + `.sig` over plain HTTPS from
-   `github.com/bobbymaher/funnypot-rules/releases/download/<tag>/<asset>` — the CDN
+   `github.com/metrictower/funnypot-rules/releases/download/<tag>/<asset>` — the CDN
    asset-download path, deliberately **not** `api.github.com`, so a large fleet isn't
    throttled by the REST API's per-IP rate limit (release assets aren't subject to it).
    Into a temp file inside `<dataDir>` itself (never `sys_get_temp_dir()` — it can be a

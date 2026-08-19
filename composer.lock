@@ -4,20 +4,20 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "4351bc778351428121985b8f1d408ff1",
+    "content-hash": "f44f0c1629fd43e814ba81799b740256",
     "packages": [
         {
-            "name": "bobbymaher/funnypot-core",
+            "name": "metrictower/funnypot-core",
             "version": "dev-main",
             "source": {
                 "type": "git",
-                "url": "https://github.com/bobbymaher/funnypot-core.git",
-                "reference": "df4b66cbbe31393eff469cb001f2128bffcba894"
+                "url": "https://github.com/metrictower/funnypot-core.git",
+                "reference": "69ba84671682c4055d03b7d2e9884503112fc1e7"
             },
             "dist": {
                 "type": "zip",
-                "url": "https://api.github.com/repos/bobbymaher/funnypot-core/zipball/df4b66cbbe31393eff469cb001f2128bffcba894",
-                "reference": "df4b66cbbe31393eff469cb001f2128bffcba894",
+                "url": "https://api.github.com/repos/metrictower/funnypot-core/zipball/69ba84671682c4055d03b7d2e9884503112fc1e7",
+                "reference": "69ba84671682c4055d03b7d2e9884503112fc1e7",
                 "shasum": ""
             },
             "require": {
@@ -64,10 +64,10 @@
             ],
             "description": "funnypot core engine: turn a scanner's own nuclei detection template into a matching fake-vulnerable HTTP response. Pure-PHP runtime, inert by default.",
             "support": {
-                "source": "https://github.com/bobbymaher/funnypot-core/tree/main",
-                "issues": "https://github.com/bobbymaher/funnypot-core/issues"
+                "source": "https://github.com/metrictower/funnypot-core/tree/main",
+                "issues": "https://github.com/metrictower/funnypot-core/issues"
             },
-            "time": "2026-08-19T10:10:19+00:00"
+            "time": "2026-08-19T12:25:32+00:00"
         }
     ],
     "packages-dev": [
@@ -2084,7 +2084,7 @@
     "aliases": [],
     "minimum-stability": "dev",
     "stability-flags": {
-        "bobbymaher/funnypot-core": 20
+        "metrictower/funnypot-core": 20
     },
     "prefer-stable": true,
     "prefer-lowest": false,
