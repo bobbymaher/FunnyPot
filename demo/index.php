@@ -79,7 +79,7 @@ if ($config->llmEnabled) {
         new LlmClient($config->llmUrl, $config->llmTimeoutMs, $config->llmNPredict, $breaker),
         new LlmOutputSanitizer(),
         $store,
-        new LlmPromptBuilder(),
+        new LlmPromptBuilder($config->poweredBy),
         (string) @file_get_contents(dirname(__DIR__) . '/resources/llm/html.gbnf'),
         $config->llmPromptVersion,
         $config->llmMaxConcurrent,
