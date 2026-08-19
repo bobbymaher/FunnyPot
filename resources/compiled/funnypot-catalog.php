@@ -75,6 +75,62 @@ return array (
     ),
     'source' => 'templates/attack/05-confluence-ognl.yaml',
   ),
+  'attack-crs-lfi' => 
+  array (
+    'id' => 'attack-crs-lfi',
+    'kind' => 'attack',
+    'title' => 'Crs Lfi',
+    'category' => 'lfi',
+    'cve' => '',
+    'severity' => 'high',
+    'default' => true,
+    'ports' => 
+    array (
+    ),
+    'source' => 'templates/attack-crs/952-crs-lfi.yaml',
+  ),
+  'attack-crs-rce' => 
+  array (
+    'id' => 'attack-crs-rce',
+    'kind' => 'attack',
+    'title' => 'Crs Rce',
+    'category' => 'rce',
+    'cve' => '',
+    'severity' => 'critical',
+    'default' => true,
+    'ports' => 
+    array (
+    ),
+    'source' => 'templates/attack-crs/953-crs-rce.yaml',
+  ),
+  'attack-crs-sqli' => 
+  array (
+    'id' => 'attack-crs-sqli',
+    'kind' => 'attack',
+    'title' => 'Crs Sqli',
+    'category' => 'sqli',
+    'cve' => '',
+    'severity' => 'high',
+    'default' => true,
+    'ports' => 
+    array (
+    ),
+    'source' => 'templates/attack-crs/950-crs-sqli.yaml',
+  ),
+  'attack-crs-xss' => 
+  array (
+    'id' => 'attack-crs-xss',
+    'kind' => 'attack',
+    'title' => 'Crs Xss',
+    'category' => 'xss',
+    'cve' => '',
+    'severity' => 'high',
+    'default' => true,
+    'ports' => 
+    array (
+    ),
+    'source' => 'templates/attack-crs/951-crs-xss.yaml',
+  ),
   'attack-f5-1388' => 
   array (
     'id' => 'attack-f5-1388',
@@ -621,6 +677,20 @@ return array (
     array (
     ),
     'source' => 'templates/route/150-joomla.yaml',
+  ),
+  'route-npmrc' => 
+  array (
+    'id' => 'route-npmrc',
+    'kind' => 'route',
+    'title' => 'Npmrc',
+    'category' => 'exposure',
+    'cve' => '',
+    'severity' => 'info',
+    'default' => true,
+    'ports' => 
+    array (
+    ),
+    'source' => 'templates/route/95-npmrc.yaml',
   ),
   'route-package-json' => 
   array (

@@ -148,8 +148,10 @@ final class EmulationCatalogTest extends TestCase
         // Enabled: the LFI payload is answered with a fake /etc/passwd.
         self::assertNotNull($mk(new EmulationPolicy($catalog, []))->respond($lfi));
 
-        // Disabled in the catalog: the same payload is refused.
-        self::assertNull($mk(new EmulationPolicy($catalog, ['attack-lfi-unix' => false]))->respond($lfi));
+        // Disabled in the catalog: the same payload is refused. LFI now has two sources — the
+        // hand-authored rule and the broadened CRS class — so fully refusing it means disabling both.
+        $off = ['attack-lfi-unix' => false, 'attack-crs-lfi' => false];
+        self::assertNull($mk(new EmulationPolicy($catalog, $off))->respond($lfi));
     }
 
     public function test_honeypot_nuclei_group_toggle_suppresses_corpus(): void

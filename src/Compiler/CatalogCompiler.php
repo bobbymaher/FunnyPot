@@ -43,6 +43,14 @@ final class CatalogCompiler
                 $entries[$entry['id']] = $entry;
             }
         }
+        // CoreRuleSet-derived attack classes live in a separate generated dir; they broaden the same
+        // per-class emulation, so they belong in the catalog as their own toggleable entries.
+        foreach ($this->scan($engineRoot . '/templates/attack-crs', 'id') as [$doc, $rel]) {
+            $entry = $this->entry($doc, 'attack', $rel, (string) ($doc['id'] ?? ''));
+            if ($entry !== null) {
+                $entries[$entry['id']] = $entry;
+            }
+        }
         foreach ($this->scan($engineRoot . '/templates/route', 'id') as [$doc, $rel]) {
             $entry = $this->entry($doc, 'route', $rel, (string) ($doc['id'] ?? ''), 'info');
             if ($entry !== null) {
