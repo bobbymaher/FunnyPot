@@ -58,6 +58,11 @@ final class AppConfig
         public string $llmPromptVersion,
         public int $llmBreakerThreshold,
         public int $llmBreakerCooldownS,
+        /** Distinct paths in 60s / 10min that flag an IP as bulk-scanning (Gate A). */
+        public int $llmVelocityPer60s,
+        public int $llmVelocityPer10m,
+        /** IPs/CIDRs exempt from the LLM velocity gate — operator test IPs generate unlimited fakes. */
+        public array $llmGateAllowIps,
     ) {
     }
 
@@ -120,6 +125,9 @@ final class AppConfig
             llmPromptVersion: $str('FUNNYPOT_LLM_PROMPT_VERSION', 'v1'),
             llmBreakerThreshold: max(1, (int) $str('FUNNYPOT_LLM_BREAKER_THRESHOLD', '5')),
             llmBreakerCooldownS: max(1, (int) $str('FUNNYPOT_LLM_BREAKER_COOLDOWN_S', '30')),
+            llmVelocityPer60s: max(1, (int) $str('FUNNYPOT_LLM_VELOCITY_PER_60S', '5')),
+            llmVelocityPer10m: max(1, (int) $str('FUNNYPOT_LLM_VELOCITY_PER_10M', '15')),
+            llmGateAllowIps: array_values(array_filter(array_map('trim', explode(',', $str('FUNNYPOT_LLM_GATE_ALLOW', ''))))),
         );
     }
 }

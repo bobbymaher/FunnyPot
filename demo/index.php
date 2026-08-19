@@ -74,7 +74,12 @@ $llmFakes = null;
 if ($config->llmEnabled) {
     $breaker = new CircuitBreaker($config->llmCacheDb, $config->llmBreakerThreshold, $config->llmBreakerCooldownS);
     $llmFakes = new LlmFakeResponder(
-        new ProbeGate(new ProbeClassifier(), new VelocityTracker(), $store),
+        new ProbeGate(
+            new ProbeClassifier(),
+            new VelocityTracker($config->llmVelocityPer60s, $config->llmVelocityPer10m),
+            $store,
+            allowIps: $config->llmGateAllowIps,
+        ),
         $llmCache,
         new LlmClient($config->llmUrl, $config->llmTimeoutMs, $config->llmNPredict, $breaker),
         new LlmOutputSanitizer(),

@@ -18,13 +18,17 @@ use Funnypot\App\Storage\HitStore;
 final class ProbeGate
 {
     /**
-     * @param int $pinHours how long a tripped IP stays pinned to plain-404 (the bulk-scan cooldown)
+     * @param int      $pinHours how long a tripped IP stays pinned to plain-404 (the bulk-scan cooldown)
+     * @param string[] $allowIps IPs / IPv4 CIDRs exempt from Gate A (velocity + pin). For operator
+     *                           testing: an allowlisted IP can generate unlimited fakes and is never
+     *                           pinned. Gate B (plausibility) still applies. Keep empty in normal prod.
      */
     public function __construct(
         private ProbeClassifier $lexical,
         private VelocityTracker $velocity,
         private HitStore $store,
         private int $pinHours = 24,
+        private array $allowIps = [],
     ) {
     }
 
@@ -33,17 +37,55 @@ final class ProbeGate
      */
     public function decide(string $method, string $path, string $ip): array
     {
-        if ($this->store->isBulkFlagged($ip)) {
-            return ['generate' => false, 'reason' => 'bulk-scan-pinned'];
-        }
-        if ($this->velocity->isBulkScan($this->store->probeVelocity($ip))) {
-            $this->store->flagBulkScan($ip, $this->pinHours);      // pin so a quiet-then-probe cannot dodge it
-            return ['generate' => false, 'reason' => 'bulk-scan'];
+        // Gate A (per-IP velocity + pin) is skipped for allowlisted operator IPs so they can test
+        // freely; the pin check is skipped too, so an already-pinned test IP recovers immediately.
+        $exempt = self::ipMatches($ip, $this->allowIps);
+        if (!$exempt) {
+            if ($this->store->isBulkFlagged($ip)) {
+                return ['generate' => false, 'reason' => 'bulk-scan-pinned'];
+            }
+            if ($this->velocity->isBulkScan($this->store->probeVelocity($ip))) {
+                $this->store->flagBulkScan($ip, $this->pinHours);  // pin so a quiet-then-probe cannot dodge it
+                return ['generate' => false, 'reason' => 'bulk-scan'];
+            }
         }
         if ($this->lexical->classify($method, $path) !== 'plausible') {
             return ['generate' => false, 'reason' => 'probe'];
         }
 
-        return ['generate' => true, 'reason' => 'plausible'];
+        return ['generate' => true, 'reason' => $exempt ? 'allowlisted' : 'plausible'];
+    }
+
+    /** True if $ip exactly equals, or falls inside an IPv4 CIDR from, any entry in $list. */
+    private static function ipMatches(string $ip, array $list): bool
+    {
+        foreach ($list as $entry) {
+            if ($entry === $ip) {
+                return true;
+            }
+            if (strpos($entry, '/') !== false && self::inCidr($ip, $entry)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** IPv4 CIDR membership. Non-IPv4 inputs never match. */
+    private static function inCidr(string $ip, string $cidr): bool
+    {
+        [$net, $bits] = array_pad(explode('/', $cidr, 2), 2, '32');
+        $ipL = ip2long($ip);
+        $netL = ip2long($net);
+        $bits = (int) $bits;
+        if ($ipL === false || $netL === false || $bits < 0 || $bits > 32) {
+            return false;
+        }
+        if ($bits === 0) {
+            return true;
+        }
+        $mask = -1 << (32 - $bits);
+
+        return ($ipL & $mask) === ($netL & $mask);
     }
 }

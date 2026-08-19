@@ -49,6 +49,12 @@ final class ProbeGateTest extends TestCase
         return new ProbeGate(new ProbeClassifier(), new VelocityTracker(5, 15), $s, 24);
     }
 
+    /** @param string[] $allow */
+    private function gateAllow(SqliteHitStore $s, array $allow): ProbeGate
+    {
+        return new ProbeGate(new ProbeClassifier(), new VelocityTracker(5, 15), $s, 24, $allow);
+    }
+
     public function test_velocity_thresholds(): void
     {
         $v = new VelocityTracker(5, 15);
@@ -90,5 +96,54 @@ final class ProbeGateTest extends TestCase
         $d2 = $g->decide('GET', '/portal/dashboard.php', '6.6.6.6');
         self::assertFalse($d2['generate']);
         self::assertSame('bulk-scan-pinned', $d2['reason']);
+    }
+
+    public function test_allowlisted_ip_bypasses_velocity_and_is_never_pinned(): void
+    {
+        $s = $this->store();
+        foreach (['/a', '/b', '/c', '/d', '/e', '/f'] as $p) {   // bulk velocity that WOULD trip
+            $s->append(['ts' => gmdate('c'), 'ip' => '7.7.7.7', 'method' => 'GET', 'path' => $p]);
+        }
+        $d = $this->gateAllow($s, ['7.7.7.7'])->decide('GET', '/admin/login.php', '7.7.7.7');
+        self::assertTrue($d['generate']);
+        self::assertSame('allowlisted', $d['reason']);
+        self::assertFalse($s->isBulkFlagged('7.7.7.7'));         // Gate A skipped → no pin written
+    }
+
+    public function test_allowlisted_ip_recovers_from_an_existing_pin(): void
+    {
+        $s = $this->store();
+        $s->flagBulkScan('7.7.7.7', 24);                          // already pinned from earlier testing
+        self::assertTrue($s->isBulkFlagged('7.7.7.7'));
+        $d = $this->gateAllow($s, ['7.7.7.7'])->decide('GET', '/admin/login.php', '7.7.7.7');
+        self::assertTrue($d['generate']);
+        self::assertSame('allowlisted', $d['reason']);
+    }
+
+    public function test_allowlist_matches_cidr(): void
+    {
+        $s = $this->store();
+        foreach (['/a', '/b', '/c', '/d', '/e', '/f'] as $p) {
+            $s->append(['ts' => gmdate('c'), 'ip' => '7.7.7.9', 'method' => 'GET', 'path' => $p]);
+        }
+        $d = $this->gateAllow($s, ['7.7.7.0/24'])->decide('GET', '/admin/login.php', '7.7.7.9');
+        self::assertTrue($d['generate']);
+        self::assertSame('allowlisted', $d['reason']);
+    }
+
+    public function test_allowlisted_ip_still_requires_a_plausible_path(): void
+    {
+        // The allowlist only bypasses Gate A (velocity/pin); Gate B still blocks obvious probes,
+        // so a test IP sees exactly what a real user would for the same path.
+        $d = $this->gateAllow($this->store(), ['7.7.7.7'])->decide('GET', '/random9271.php', '7.7.7.7');
+        self::assertFalse($d['generate']);
+        self::assertSame('probe', $d['reason']);
+    }
+
+    public function test_configurable_velocity_thresholds_can_be_raised(): void
+    {
+        $v = new VelocityTracker(100, 1000);
+        self::assertFalse($v->isBulkScan(['recent' => 50, 'extended' => 500]));
+        self::assertTrue($v->isBulkScan(['recent' => 100, 'extended' => 0]));
     }
 }

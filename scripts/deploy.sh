@@ -117,6 +117,9 @@ FUNNYPOT_LLM_FLAGS=""
 if [ "$LLM_ON" = "1" ]; then
     FUNNYPOT_NET_FLAG="--network $LLM_NET"
     FUNNYPOT_LLM_FLAGS="-e FUNNYPOT_LLM=1 -e FUNNYPOT_LLM_URL=http://funnypot-llm:8080/completion -e FUNNYPOT_LLM_MAX_CONCURRENT=$LLM_MAX_CONCURRENT -e FUNNYPOT_LLM_TIMEOUT_MS=$LLM_TIMEOUT_MS"
+    # Operator testing knobs (empty = app defaults 5/15, no allowlist): raise the per-IP velocity gate
+    # or exempt a test IP/CIDR so it can generate unlimited fakes without self-pinning to plain-404.
+    FUNNYPOT_LLM_FLAGS="$FUNNYPOT_LLM_FLAGS -e FUNNYPOT_LLM_GATE_ALLOW=${FUNNYPOT_LLM_GATE_ALLOW:-} -e FUNNYPOT_LLM_VELOCITY_PER_60S=${FUNNYPOT_LLM_VELOCITY_PER_60S:-} -e FUNNYPOT_LLM_VELOCITY_PER_10M=${FUNNYPOT_LLM_VELOCITY_PER_10M:-}"
     LLM_SETUP="sudo docker network inspect $LLM_NET >/dev/null 2>&1 || sudo docker network create $LLM_NET ; sudo docker rm -f funnypot-llm 2>/dev/null || true ; sudo docker run -d --name funnypot-llm --restart unless-stopped --network $LLM_NET -m $LLM_MEM --memory-swap $LLM_MEM_SWAP -e THREADS=$LLM_THREADS -e PARALLEL=$LLM_PARALLEL -e CTX_SIZE=2048 funnypot-llm"
 fi
 # \$HOME etc. expand on the REMOTE; \$PFLAGS / \$LLM_SETUP / the LLM flags expand locally.
