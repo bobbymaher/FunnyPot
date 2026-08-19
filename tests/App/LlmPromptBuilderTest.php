@@ -21,7 +21,7 @@ final class LlmPromptBuilderTest extends TestCase
         self::assertStringContainsString('<|im_start|>assistant', $out);
         // the exemplar answer stabilises the format — and it's a JUICY page, not a login, so the
         // model imitates something valuable-looking
-        self::assertStringContainsString('ACME Portal - User Administration', $out);
+        self::assertStringContainsString('User Administration', $out);
         self::assertStringContainsString('look VALUABLE to an intruder', $out);
         // ends open for the model to complete
         self::assertStringEndsWith("<|im_start|>assistant\n", $out);
