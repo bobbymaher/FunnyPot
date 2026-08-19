@@ -30,6 +30,7 @@ use Funnypot\App\Llm\VelocityTracker;
 use Funnypot\App\Storage\LlmFakeCache;
 use Funnypot\App\Storage\SqliteHitStore;
 use Funnypot\App\ThreatIntel\AbuseIpdb;
+use Funnypot\App\ThreatIntel\AttackClassifier;
 use Funnypot\App\ThreatIntel\Blocklist;
 use Funnypot\Honeytoken;
 use Funnypot\RequestContext;
@@ -94,7 +95,7 @@ if ($config->llmEnabled) {
     );
 }
 
-$honeypot = new HoneypotController($store, $geo, $config, __DIR__ . '/decoys', $blocklist, $abuse, $llmFakes);
+$honeypot = new HoneypotController($store, $geo, $config, __DIR__ . '/decoys', $blocklist, $abuse, $llmFakes, new AttackClassifier());
 $dashboard = new DashboardController($store, $geo, $config, __DIR__ . '/assets', $llmCache);
 $corporate = new CorporateController($store, $geo, $config, __DIR__ . '/assets', $blocklist);
 (new Router($config, $honeypot, $dashboard, $corporate))->dispatch($context, $clientIp, $tokenVerdict);

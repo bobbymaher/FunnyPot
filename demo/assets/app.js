@@ -28,6 +28,7 @@ function detectSource(r){
   const ids=r.templates||[];
   if(ids.some(id=>id.indexOf('attack-crs-')===0)) return 'CRS';
   if(ids.some(id=>id.indexOf('attack-')===0)) return 'Custom';
+  if(ids.some(id=>id.indexOf('payload-')===0)) return 'Payload';  // classifier caught an attack on an unmatched path
   if(ids.length) return 'Nuclei';
   return '';
 }
