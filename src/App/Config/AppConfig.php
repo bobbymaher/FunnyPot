@@ -122,7 +122,7 @@ final class AppConfig
             llmCacheDb: $str('FUNNYPOT_LLM_CACHE_DB', $store . '/llm_cache.sqlite'),
             llmCacheMaxBytes: (int) $str('FUNNYPOT_LLM_CACHE_MAX_BYTES', '0'),
             llmMaxConcurrent: max(1, (int) $str('FUNNYPOT_LLM_MAX_CONCURRENT', '4')),
-            llmPromptVersion: $str('FUNNYPOT_LLM_PROMPT_VERSION', 'v1'),
+            llmPromptVersion: $str('FUNNYPOT_LLM_PROMPT_VERSION', 'v2'),
             llmBreakerThreshold: max(1, (int) $str('FUNNYPOT_LLM_BREAKER_THRESHOLD', '5')),
             llmBreakerCooldownS: max(1, (int) $str('FUNNYPOT_LLM_BREAKER_COOLDOWN_S', '30')),
             llmVelocityPer60s: max(1, (int) $str('FUNNYPOT_LLM_VELOCITY_PER_60S', '5')),

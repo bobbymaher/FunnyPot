@@ -28,8 +28,7 @@ final class LlmFakeResponder
         private LlmClient $client,
         private LlmOutputSanitizer $sanitizer,
         private HitStore $store,
-        private LlmPromptBuilder $prompt,
-        private string $grammar,
+        private LlmResponseProfiles $profiles,
         private string $promptVersion = 'v1',
         private int $maxConcurrent = 4,
     ) {
@@ -62,11 +61,15 @@ final class LlmFakeResponder
     private function attempt(RequestContext $context, string $clientIp): ?SynthesizedResponse
     {
         $key = PathNormalizer::key($context->method, $context->path);
+        // The extension decides the fake's shape (Content-Type, prompt, grammar, sanitizer rules): a
+        // .js gets JavaScript, a .json gets JSON, an .env plaintext — not an HTML page every time.
+        $profile = $this->profiles->resolve($context->path);
 
-        // 1. Cache hit — the common case, served byte-identical, no model call, no gate query.
+        // 1. Cache hit — the common case, served byte-identical, no model call, no gate query. The
+        //    stored Content-Type is authoritative (a path's kind is fixed), so serve it, not a guess.
         $hit = $this->cache->get($key, $this->promptVersion);
         if ($hit !== null) {
-            return $this->build($hit['status'], $hit['body']);
+            return $this->build($hit['status'], $hit['content_type'], $hit['body']);
         }
 
         // 2. Gate (only paid on a cache miss). Sheds the probe/scan 404s before they can consume a
@@ -85,30 +88,30 @@ final class LlmFakeResponder
         if ($lock === LlmFakeCache::ACQUIRE_BUSY) {
             $peer = $this->cache->awaitOther($key, $this->promptVersion);
 
-            return $peer !== null ? $this->build($peer['status'], $peer['body']) : null;
+            return $peer !== null ? $this->build($peer['status'], $peer['content_type'], $peer['body']) : null;
         }
 
         try {
-            $raw = $this->client->generate($this->prompt->build($context->method, $context->path), $this->grammar);
+            $raw = $this->client->generate($profile->prompt->build($context->method, $context->path), $profile->grammar);
             if ($raw === null) {
                 return null;                                  // failure is never cached
             }
-            $body = $this->sanitizer->sanitize($raw);
+            $body = $this->sanitizer->sanitize($raw, $profile->kind);
             if ($body === null) {
                 return null;
             }
             $status = $this->chooseStatus($context->path);
-            $this->cache->put($key, $status, 'text/html; charset=utf-8', $body, $this->promptVersion);
+            $this->cache->put($key, $status, $profile->contentType, $body, $this->promptVersion);
 
-            return $this->build($status, $body);
+            return $this->build($status, $profile->contentType, $body);
         } finally {
             $this->cache->release($key);
         }
     }
 
-    private function build(int $status, string $body): SynthesizedResponse
+    private function build(int $status, string $contentType, string $body): SynthesizedResponse
     {
-        return new SynthesizedResponse($status, ['Content-Type' => 'text/html; charset=utf-8'], $body, Detection::none());
+        return new SynthesizedResponse($status, ['Content-Type' => $contentType], $body, Detection::none());
     }
 
     /** App-chosen status (never the model's). Bias auth-looking paths to 401 so not every plausible

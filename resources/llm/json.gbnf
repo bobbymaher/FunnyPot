@@ -1,0 +1,15 @@
+# Bounded JSON grammar for the honeypot LLM: forces a single well-formed JSON object or array, so a
+# markdown fence, a "Sure! " preamble, or a text refusal is structurally unreachable (the first legal
+# byte is '{' or '['). Repetition caps keep a small CPU model's output compact. Semantics are still
+# checked by LlmOutputSanitizer. Same strict-parser rules as html.gbnf apply (single-line
+# alternations; a literal '-' sits at the END of a char class).
+root    ::= ws value ws
+value   ::= object | array | string | number | "true" | "false" | "null"
+object  ::= "{" ws (member (ws "," ws member){0,19})? ws "}"
+member  ::= string ws ":" ws value
+array   ::= "[" ws (value (ws "," ws value){0,19})? ws "]"
+string  ::= "\"" schar{0,120} "\""
+schar   ::= [a-zA-Z0-9 _./?=&:#;%()',+-]
+number  ::= "-"? digit{1,15} ("." digit{1,6})?
+digit   ::= [0-9]
+ws      ::= [ \t\n]{0,4}

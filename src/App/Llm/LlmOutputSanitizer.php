@@ -4,47 +4,93 @@ declare(strict_types=1);
 
 namespace Funnypot\App\Llm;
 
+use DOMDocument;
+
 /**
- * Treats LLM output as hostile. The GBNF grammar constrains structure, but not semantics, so every
- * generated body is validated here before it can be served. Returns null on ANY violation, which the
- * responder treats identically to a generation failure: fall through to the plain 404. Never
- * truncates (a truncated HTML body is malformed, and malformed is its own tell) and never executes
- * the string — it only ever reaches output as a response body.
+ * Treats LLM output as hostile. The grammar (where one is used) constrains structure, but not
+ * semantics, so every generated body is validated here before it can be served. Returns null on ANY
+ * violation, which the responder treats identically to a generation failure: fall through to the
+ * plain 404. Never truncates (a truncated body is malformed, and malformed is its own tell) and never
+ * executes the string — it only ever reaches output as a response body.
+ *
+ * Validation is per content kind. A shared prelude (size band, UTF-8, no control bytes, exploit-code
+ * substrings) runs for every kind; then a kind-specific check enforces that the body reads as that
+ * type and carries nothing weaponised. The grammar-backed kinds (html, json) also get a first-byte
+ * check; the grammar-free kinds (css, js, xml, text) instead reject a leading refusal/fence, since
+ * they have no grammar to make a preamble structurally unreachable.
+ *
+ * Caveat on JS: JavaScript is Turing-complete, so "is this body inert" is not decidable by a
+ * substring blocklist alone. The JS path is defence-in-depth (a data-only exemplar upstream + the
+ * blocklist here), not a proof of inertness the way "no <script> tag exists" is for HTML.
  */
 final class LlmOutputSanitizer
 {
-    /** Tags that must never appear (active content / redirect-y / structural injection). */
+    /** Tags that must never appear in HTML (active content / redirect-y / structural injection). */
     private const BAD_TAGS = ['<script', '<iframe', '<object', '<embed', '<link', '<style', '<base'];
 
-    /** Exploit-shaped substrings that a fake page never legitimately contains. */
+    /** Exploit-shaped substrings that no fake body of any kind legitimately contains. */
     private const BAD_SUBSTRINGS = [
         '<?php', '<?=', '#!/bin/', 'eval(', 'base64_decode(', 'system(', 'exec(', 'passthru(',
         'proc_open(', 'shell_exec(', '-----begin', '../../', '..\\..\\',
     ];
 
-    /** @return string|null the validated body, or null on any violation */
-    public function sanitize(string $raw, int $maxBytes = 8192): ?string
+    /** A leading refusal / self-identification / fence — the tell a grammar-free body must not open
+     *  with (grammar-backed kinds can't reach these). Checked over the first 80 chars only. */
+    private const REFUSAL_MARKERS = [
+        '```', 'sorry', 'i cannot', "i can't", 'i am unable', "i'm unable", 'as an ai',
+        'as a language model', 'here is', "here's", 'sure!', 'certainly', 'unfortunately',
+    ];
+
+    /**
+     * @param string $kind html|json|css|js|xml|text (unknown kinds validate as html)
+     * @return string|null the validated body, or null on any violation
+     */
+    public function sanitize(string $raw, string $kind = 'html', int $maxBytes = 8192): ?string
     {
         $s = trim($raw);
         $len = strlen($s);
 
-        // Realistic size band: reject a 12-byte "login page" and an oversized dump alike.
+        // Realistic size band: reject a 12-byte stub and an oversized dump alike.
         if ($len < 32 || $len > $maxBytes) {
-            return null;
-        }
-        // Must be markup from the first byte: no "Sure! ", no ```html fence, no refusal sentence.
-        if ($s[0] !== '<') {
             return null;
         }
         if (!mb_check_encoding($s, 'UTF-8')) {
             return null;
         }
-        // No control bytes (a real HTML page has none); tab / newline / carriage-return are allowed.
+        // No control bytes (a real response body has none); tab / newline / carriage-return allowed.
         if (preg_match('/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/', $s) === 1) {
             return null;
         }
-
         $low = strtolower($s);
+        foreach (self::BAD_SUBSTRINGS as $bad) {
+            if (strpos($low, $bad) !== false) {
+                return null;
+            }
+        }
+
+        switch ($kind) {
+            case 'json':
+                return $this->sanitizeJson($s);
+            case 'css':
+                return $this->sanitizeCss($s, $low);
+            case 'js':
+                return $this->sanitizeJs($s, $low);
+            case 'xml':
+                return $this->sanitizeXml($s, $low);
+            case 'text':
+                return $this->sanitizeText($s, $low);
+            case 'html':
+            default:
+                return $this->sanitizeHtml($s, $low);
+        }
+    }
+
+    private function sanitizeHtml(string $s, string $low): ?string
+    {
+        // Must be markup from the first byte: no "Sure! ", no ```html fence, no refusal sentence.
+        if ($s[0] !== '<') {
+            return null;
+        }
         foreach (self::BAD_TAGS as $tag) {
             if (strpos($low, $tag) !== false) {
                 return null;
@@ -65,15 +111,192 @@ final class LlmOutputSanitizer
         if (preg_match('~\b(?:href|src|action|formaction)\s*=\s*["\']?\s*(?:(?:https?|javascript|vbscript|data)\s*:|//)~i', $s) === 1) {
             return null;
         }
-        if (preg_match('~url\(\s*["\']?\s*(?:(?:https?|javascript|vbscript|data)\s*:|//)~i', $s) === 1) {
+        if ($this->hasBadCssUrl($s)) {
             return null;
         }
-        foreach (self::BAD_SUBSTRINGS as $bad) {
+
+        return $s;
+    }
+
+    private function sanitizeJson(string $s): ?string
+    {
+        // First non-whitespace byte must open an object/array (the grammar guarantees this; kept as a
+        // floor for a degraded/grammar-free fallback path).
+        $first = ltrim($s)[0] ?? '';
+        if ($first !== '{' && $first !== '[') {
+            return null;
+        }
+        $decoded = json_decode($s, true, 32);
+        if ($decoded === null && strtolower(trim($s)) !== 'null') {
+            return null;                                    // malformed / too deep
+        }
+        // Belt-and-braces recursion cap even though the grammar already bounds nesting.
+        if ($this->jsonTooDeep($decoded, 6) || $this->jsonHasBadValue($decoded)) {
+            return null;
+        }
+
+        return $s;
+    }
+
+    private function sanitizeCss(string $s, string $low): ?string
+    {
+        if ($this->opensWithRefusal($low)) {
+            return null;
+        }
+        // A stylesheet has no legitimate markup, no remote import, and none of the CSS-as-code vectors.
+        if (strpos($s, '<') !== false || strpos($s, '>') !== false) {
+            return null;
+        }
+        foreach (['@import', 'expression(', '-moz-binding', 'behavior:'] as $bad) {
+            if (strpos($low, $bad) !== false) {
+                return null;
+            }
+        }
+        if ($this->hasBadCssUrl($s)) {
+            return null;
+        }
+        // Malformed (unbalanced) CSS is its own tell.
+        if (substr_count($s, '{') !== substr_count($s, '}')) {
+            return null;
+        }
+
+        return $s;
+    }
+
+    private function sanitizeJs(string $s, string $low): ?string
+    {
+        if ($this->opensWithRefusal($low)) {
+            return null;
+        }
+        // No markup breakout, no template literals, no obfuscation escapes.
+        if (strpos($s, '<') !== false || strpos($s, '>') !== false || strpos($s, '`') !== false) {
+            return null;
+        }
+        if (preg_match('/\\\\[xu]/', $s) === 1) {
+            return null;
+        }
+        // Off-site / active-content references and event-handler shapes.
+        if (preg_match('~(?:https?|javascript|vbscript|data)\s*:~i', $s) === 1) {
+            return null;
+        }
+        if (preg_match('~[\s/]on[a-z]+\s*=~i', $s) === 1) {
+            return null;
+        }
+        // Runtime / network / DOM primitives — data-only config JS needs none of these. (eval( is
+        // already blocked by the shared BAD_SUBSTRINGS.)
+        foreach ([
+            'function(', 'new function', 'document.', 'window.', 'location', 'cookie', 'fetch(',
+            'xmlhttprequest', 'websocket', 'import(', 'require(', 'settimeout(', 'setinterval(',
+            'atob(', 'btoa(', 'string.fromcharcode(',
+        ] as $bad) {
             if (strpos($low, $bad) !== false) {
                 return null;
             }
         }
 
         return $s;
+    }
+
+    private function sanitizeXml(string $s, string $low): ?string
+    {
+        if ($s[0] !== '<') {
+            return null;
+        }
+        // XXE / entity-expansion vectors — XML's own risk class.
+        foreach (['<!doctype', '<!entity', '<![cdata['] as $bad) {
+            if (strpos($low, $bad) !== false) {
+                return null;
+            }
+        }
+        // Absolute/protocol-relative URL in an attribute value (off-site reference).
+        if (preg_match('~=\s*["\']?\s*(?:https?\s*:|//)~i', $s) === 1) {
+            return null;
+        }
+        // Real-parser well-formedness (mismatched tags, unescaped &/<, bad nesting). LIBXML_NONET
+        // blocks network fetches; PHP 8 does not resolve external entities by default (and we don't
+        // pass LIBXML_NOENT, which would expand them).
+        $prev = libxml_use_internal_errors(true);
+        $doc = new DOMDocument();
+        $ok = $doc->loadXML($s, LIBXML_NONET);
+        libxml_clear_errors();
+        libxml_use_internal_errors($prev);
+
+        return $ok === true ? $s : null;
+    }
+
+    private function sanitizeText(string $s, string $low): ?string
+    {
+        if ($this->opensWithRefusal($low)) {
+            return null;
+        }
+        // A real .env/.ini/.sql/.txt/.yaml never contains markup — its presence means the model broke
+        // out of plaintext into HTML/XML.
+        if (strpos($s, '<') !== false || strpos($s, '>') !== false) {
+            return null;
+        }
+
+        return $s;
+    }
+
+    /** True if the first 80 chars open with a refusal / self-identification / markdown fence. */
+    private function opensWithRefusal(string $low): bool
+    {
+        $head = substr($low, 0, 80);
+        foreach (self::REFUSAL_MARKERS as $m) {
+            if (strpos($head, $m) !== false) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** An absolute / protocol-relative / active-scheme URL inside a CSS url(...). Content-agnostic,
+     *  so it is reused by both the html and css paths. */
+    private function hasBadCssUrl(string $s): bool
+    {
+        return preg_match('~url\(\s*["\']?\s*(?:(?:https?|javascript|vbscript|data)\s*:|//)~i', $s) === 1;
+    }
+
+    /** @param mixed $v */
+    private function jsonTooDeep($v, int $left): bool
+    {
+        if (!is_array($v)) {
+            return false;
+        }
+        if ($left <= 0) {
+            return true;
+        }
+        foreach ($v as $child) {
+            if ($this->jsonTooDeep($child, $left - 1)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Recursively reject a string value that reads as a script tag, an active-content scheme, or an
+     *  absolute URL — inert as JSON, but a plausibility/safety tell if the value is templated onward.
+     *  @param mixed $v */
+    private function jsonHasBadValue($v): bool
+    {
+        if (is_string($v)) {
+            $l = strtolower($v);
+            if (strpos($l, '<script') !== false || preg_match('~(?:javascript|vbscript|data)\s*:~i', $v) === 1) {
+                return true;
+            }
+
+            return preg_match('~(?:https?\s*:)?//~i', $v) === 1;
+        }
+        if (is_array($v)) {
+            foreach ($v as $child) {
+                if ($this->jsonHasBadValue($child)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 }

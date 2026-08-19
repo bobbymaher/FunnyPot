@@ -23,7 +23,7 @@ use Funnypot\App\Llm\CircuitBreaker;
 use Funnypot\App\Llm\LlmClient;
 use Funnypot\App\Llm\LlmFakeResponder;
 use Funnypot\App\Llm\LlmOutputSanitizer;
-use Funnypot\App\Llm\LlmPromptBuilder;
+use Funnypot\App\Llm\LlmResponseProfiles;
 use Funnypot\App\Llm\ProbeClassifier;
 use Funnypot\App\Llm\ProbeGate;
 use Funnypot\App\Llm\VelocityTracker;
@@ -84,8 +84,11 @@ if ($config->llmEnabled) {
         new LlmClient($config->llmUrl, $config->llmTimeoutMs, $config->llmNPredict, $breaker),
         new LlmOutputSanitizer(),
         $store,
-        new LlmPromptBuilder($config->poweredBy),
-        (string) @file_get_contents(dirname(__DIR__) . '/resources/llm/html.gbnf'),
+        new LlmResponseProfiles(
+            $config->poweredBy,
+            (string) @file_get_contents(dirname(__DIR__) . '/resources/llm/html.gbnf'),
+            (string) @file_get_contents(dirname(__DIR__) . '/resources/llm/json.gbnf'),
+        ),
         $config->llmPromptVersion,
         $config->llmMaxConcurrent,
     );

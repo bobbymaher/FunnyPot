@@ -7,7 +7,7 @@ namespace Funnypot\Tests\App;
 use Funnypot\App\Llm\LlmClient;
 use Funnypot\App\Llm\LlmFakeResponder;
 use Funnypot\App\Llm\LlmOutputSanitizer;
-use Funnypot\App\Llm\LlmPromptBuilder;
+use Funnypot\App\Llm\LlmResponseProfiles;
 use Funnypot\App\Llm\ProbeClassifier;
 use Funnypot\App\Llm\ProbeGate;
 use Funnypot\App\Llm\VelocityTracker;
@@ -60,8 +60,7 @@ final class LlmFakeResponderTest extends TestCase
             new LlmClient('http://sidecar/completion', 1500, 320, null, $transport),
             new LlmOutputSanitizer(),
             $store,
-            new LlmPromptBuilder(),
-            'root ::= "<"',
+            new LlmResponseProfiles('nginx', 'root ::= "<"', 'root ::= "{"'),
             'v1',
             4,
         );
@@ -141,5 +140,55 @@ final class LlmFakeResponderTest extends TestCase
         $resp = $r->respond(new RequestContext('GET', '/admin/settings.php'), '9.9.9.9');
         self::assertNotNull($resp);
         self::assertSame(401, $resp->status);
+    }
+
+    public function test_js_path_serves_javascript_not_html(): void
+    {
+        // The reported bug: a .js request got an HTML page at text/html. It must serve JavaScript.
+        $js = 'var APP_CONFIG={"version":"1.0","apiBase":"/api/v1","debug":false,"buildId":"abc123ff"};';
+        [$r] = $this->make(fn (): array => ['status' => 200, 'body' => json_encode(['content' => $js])]);
+        $resp = $r->respond(new RequestContext('GET', '/static/js/app.js'), '9.9.9.9');
+        self::assertNotNull($resp);
+        self::assertSame('application/javascript', $resp->headers['Content-Type']);
+        self::assertStringNotContainsString('<html', $resp->body);
+        self::assertStringContainsString('APP_CONFIG', $resp->body);
+    }
+
+    public function test_cache_hit_preserves_content_type(): void
+    {
+        // The latent bug: build() hardcoded text/html even on a cache hit, discarding the stored type.
+        $calls = 0;
+        $json = '{"users":[{"id":1,"name":"a.reyes","role":"admin"}],"total":1}';
+        [$r] = $this->make(function () use (&$calls, $json): array {
+            $calls++;
+
+            return ['status' => 200, 'body' => json_encode(['content' => $json])];
+        });
+
+        $first = $r->respond(new RequestContext('GET', '/api/v2/report.json'), '9.9.9.9');
+        self::assertNotNull($first);
+        self::assertSame('application/json', $first->headers['Content-Type']);
+
+        // Second request is a cache hit (no new generation) and MUST keep application/json.
+        $second = $r->respond(new RequestContext('GET', '/api/v2/report.json'), '9.9.9.9');
+        self::assertNotNull($second);
+        self::assertSame(1, $calls);
+        self::assertSame('application/json', $second->headers['Content-Type']);
+    }
+
+    public function test_unmapped_extension_falls_back_to_html(): void
+    {
+        [$r] = $this->make(fn (): array => ['status' => 200, 'body' => json_encode(['content' => self::GOOD_HTML])]);
+        $resp = $r->respond(new RequestContext('GET', '/backup/keystore.pem'), '9.9.9.9');
+        self::assertNotNull($resp);
+        self::assertSame('text/html; charset=utf-8', $resp->headers['Content-Type']);
+    }
+
+    public function test_non_html_sanitizer_rejection_returns_null(): void
+    {
+        // A .js body carrying a runtime primitive is rejected → the plain 404 (parity with HTML).
+        $badJs = 'var x=1; fetch("/y"); var padding_to_reach_the_minimum_length_here=2;';
+        [$r] = $this->make(fn (): array => ['status' => 200, 'body' => json_encode(['content' => $badJs])]);
+        self::assertNull($r->respond(new RequestContext('GET', '/static/js/app.js'), '9.9.9.9'));
     }
 }
