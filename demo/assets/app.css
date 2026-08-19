@@ -36,6 +36,13 @@ td.path{word-break:break-all;max-width:340px}
 .miss{background:rgba(168,152,122,.12);color:var(--muted);border:1px solid var(--line)}
 .served{color:var(--red);font-weight:700}
 .known{background:rgba(255,107,94,.16);color:var(--red);border:1px solid rgba(255,107,94,.45)}
+/* Which layer produced the response: nuclei-exact / CRS class / custom attack / LLM / decoy. */
+.badge.src{margin-left:5px;font-size:11px}
+.src-nuclei{background:rgba(90,150,255,.14);color:#5a96ff;border:1px solid rgba(90,150,255,.4)}
+.src-crs{background:rgba(232,135,58,.16);color:#e8873a;border:1px solid rgba(232,135,58,.45)}
+.src-custom{background:rgba(180,120,255,.14);color:#b478ff;border:1px solid rgba(180,120,255,.4)}
+.src-llm{background:rgba(60,200,160,.14);color:#3cc8a0;border:1px solid rgba(60,200,160,.4)}
+.src-decoy{background:rgba(168,152,122,.12);color:var(--muted);border:1px solid var(--line)}
 .ids{color:var(--muted);font-size:12px}
 tr.flash{animation:flash 1.4s ease-out}
 @keyframes flash{from{background:rgba(240,180,0,.28)}to{background:transparent}}

@@ -20,9 +20,22 @@ function plot(r){
   setTimeout(()=>{try{m.setStyle({fillOpacity:.2,opacity:.3});}catch(e){}},4000);
 }
 function applyFilter(){document.querySelectorAll('#rows tr').forEach(tr=>tr.classList.toggle('hide', filter!=='' && !(tr.dataset.ip||'').includes(filter)));}
+// Which layer answered this hit, derived from the served template ids / event. Precedence order
+// (nuclei-exact > CRS-class > custom attack > LLM) is mirrored here so the label names what served.
+function detectSource(r){
+  if(r.event==='llm-fake') return 'LLM';
+  if(r.event==='decoy-archive') return 'Decoy';
+  const ids=r.templates||[];
+  if(ids.some(id=>id.indexOf('attack-crs-')===0)) return 'CRS';
+  if(ids.some(id=>id.indexOf('attack-')===0)) return 'Custom';
+  if(ids.length) return 'Nuclei';
+  return '';
+}
 function rowEl(r){
   const tr=document.createElement('tr');tr.dataset.ip=r.ip||'';
   const badge=r.matched?`<span class="badge scan">SCAN ${esc((r.severity||'').toUpperCase())}</span>`:'<span class="badge miss">404</span>';
+  const src=detectSource(r);
+  const srcBadge=src?` <span class="badge src src-${src.toLowerCase()}" title="which layer produced the response">${src}</span>`:'';
   const ids=(r.templates&&r.templates.length)?`<div class="ids">${esc(r.templates.join(', '))}</div>`:'';
   const bodyLabel=r.event==='llm-fake'?'response':'payload';
   const payload=r.body?`<div class="payload"><b>${bodyLabel}:</b> ${esc(r.body)}</div>`:'';
@@ -30,7 +43,7 @@ function rowEl(r){
   const cc=r.cc?` <span class="ids">${esc(r.cc)}</span>`:'';
   const known=r.known_attacker?' <span class="badge known" title="known attacker (threat-intel blocklist)">known</span>':'';
   const t=(r.ts||'').substr(11,8);
-  tr.innerHTML=`<td>${t}</td><td>${esc(r.ip)}${cc}${known}</td><td class="path"><b>${esc(r.method)}</b> ${esc(r.path)}${ids}${payload}</td><td>${badge}</td><td>${served}</td>`;
+  tr.innerHTML=`<td>${t}</td><td>${esc(r.ip)}${cc}${known}</td><td class="path"><b>${esc(r.method)}</b> ${esc(r.path)}${ids}${payload}</td><td>${badge}${srcBadge}</td><td>${served}</td>`;
   return tr;
 }
 const empty=()=>{$('rows').innerHTML='<tr><td colspan=5 class=empty>No hits yet &mdash; point a scanner at this host.</td></tr>';};
