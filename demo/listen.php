@@ -17,6 +17,7 @@ require __DIR__ . '/../vendor/autoload.php';
 use Funnypot\App\Config\AppConfig;
 use Funnypot\App\Storage\SqliteHitStore;
 use Funnypot\App\ThreatIntel\AbuseIpdb;
+use Funnypot\App\ThreatIntel\ThreatIntelReporter;
 use Funnypot\Policy\EmulationPolicy;
 use Funnypot\Protocol\Listener;
 use Funnypot\Protocol\ProtocolTemplateSet;
@@ -40,16 +41,22 @@ $store = new SqliteHitStore($config->dbPath, $config->logPath);
 $abuse = ($config->abuseIpdbReport && $config->abuseIpdbKey !== '')
     ? new AbuseIpdb($config->abuseIpdbKey, $config->intelDbPath, $config->selfIps, $config->abuseIpdbDailyCap, $config->abuseIpdbDedupHours)
     : null;
+// Threat Intel reporting to our own funnypot-mainnet service (enqueue-only here; a background worker
+// drains). Independent of AbuseIPDB; both may be armed at once.
+$threatIntel = ($config->threatIntelReport && $config->threatIntelKey !== '')
+    ? new ThreatIntelReporter($config->threatIntelUrl, $config->threatIntelKey, $config->intelDbPath, $config->selfIps, $config->threatIntelDailyCap, $config->threatIntelDedupHours)
+    : null;
 $port = (int) substr($bind, (int) strrpos($bind, ':') + 1);
 $categories = AbuseIpdb::categoriesForProtocol($protocol);
 
-$log = static function (array $entry) use ($store, $abuse, $protocol, $port, $categories): void {
+$log = static function (array $entry) use ($store, $abuse, $threatIntel, $protocol, $port, $categories): void {
     $store->append($entry);
-    if ($abuse !== null && !empty($entry['ip'])) {
+    if (($abuse !== null || $threatIntel !== null) && !empty($entry['ip'])) {
         $event = (string) ($entry['event'] ?? '');
         $data = trim(substr((string) ($entry['path'] ?? $entry['body'] ?? ''), 0, 100));
         $comment = sprintf('funnypot %s honeypot, port %d: %s %s', strtoupper($protocol), $port, $event, $data);
-        $abuse->enqueue((string) $entry['ip'], $comment, $categories);
+        $abuse?->enqueue((string) $entry['ip'], $comment, $categories);
+        $threatIntel?->enqueue((string) $entry['ip'], $comment, $categories);
     }
 };
 

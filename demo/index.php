@@ -32,6 +32,7 @@ use Funnypot\App\Storage\SqliteHitStore;
 use Funnypot\App\ThreatIntel\AbuseIpdb;
 use Funnypot\App\ThreatIntel\AttackClassifier;
 use Funnypot\App\ThreatIntel\Blocklist;
+use Funnypot\App\ThreatIntel\ThreatIntelReporter;
 use Funnypot\Honeytoken;
 use Funnypot\RequestContext;
 
@@ -66,6 +67,12 @@ $abuse = ($config->abuseIpdbReport && $config->abuseIpdbKey !== '')
     ? new AbuseIpdb($config->abuseIpdbKey, $config->intelDbPath, $config->selfIps, $config->abuseIpdbDailyCap, $config->abuseIpdbDedupHours)
     : null;
 
+// Threat Intel reporting to our own funnypot-mainnet service: opt-in, armed only with a key. Shares
+// the self-exclude guard and intel store with AbuseIPDB but throttles independently (its own tables).
+$threatIntel = ($config->threatIntelReport && $config->threatIntelKey !== '')
+    ? new ThreatIntelReporter($config->threatIntelUrl, $config->threatIntelKey, $config->intelDbPath, $config->selfIps, $config->threatIntelDailyCap, $config->threatIntelDedupHours)
+    : null;
+
 // LLM-generated fake responses for plausible unknown paths (opt-in, needs the funnypot-llm sidecar).
 // Every failure/decline falls through to the plain 404, so this only ever upgrades a 404.
 // One cache instance shared by the responder (read/write) and the dashboard (browse/delete). Lazy:
@@ -95,7 +102,7 @@ if ($config->llmEnabled) {
     );
 }
 
-$honeypot = new HoneypotController($store, $geo, $config, __DIR__ . '/decoys', $blocklist, $abuse, $llmFakes, new AttackClassifier());
+$honeypot = new HoneypotController($store, $geo, $config, __DIR__ . '/decoys', $blocklist, $abuse, $threatIntel, $llmFakes, new AttackClassifier());
 $dashboard = new DashboardController($store, $geo, $config, __DIR__ . '/assets', $llmCache);
 $corporate = new CorporateController($store, $geo, $config, __DIR__ . '/assets', $blocklist);
 (new Router($config, $honeypot, $dashboard, $corporate))->dispatch($context, $clientIp, $tokenVerdict);

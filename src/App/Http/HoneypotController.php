@@ -10,6 +10,7 @@ use Funnypot\App\Storage\HitStore;
 use Funnypot\App\ThreatIntel\AbuseIpdb;
 use Funnypot\App\ThreatIntel\AttackClassifier;
 use Funnypot\App\ThreatIntel\Blocklist;
+use Funnypot\App\ThreatIntel\ThreatIntelReporter;
 use Funnypot\Config;
 use Funnypot\Honeypot;
 use Funnypot\Http\ResponseEmitter;
@@ -32,6 +33,7 @@ final class HoneypotController
         private string $decoyDir,
         private ?Blocklist $blocklist = null,
         private ?AbuseIpdb $abuse = null,
+        private ?ThreatIntelReporter $threatIntel = null,
         private ?LlmFakeResponder $llmFakes = null,
         private ?AttackClassifier $attackClassifier = null,
     ) {
@@ -225,11 +227,13 @@ final class HoneypotController
         $this->maybeReport($logged->matched || $payloadClass !== null, $clientIp, $context, $payloadClass);
     }
 
-    /** Queue a web attacker for AbuseIPDB, with the port + URL (and the detected class, if any) in the
-     *  comment. Reports both engine-matched attacks and classifier-caught payloads on unmatched paths. */
+    /** Queue a web attacker for the reporters (AbuseIPDB and/or our Threat Intel service), with the
+     *  port + URL (and the detected class, if any) in the comment. Reports both engine-matched attacks
+     *  and classifier-caught payloads on unmatched paths. Each reporter is independent; both enqueues
+     *  are fast local writes that never touch the network on the request path. */
     private function maybeReport(bool $report, string $clientIp, RequestContext $context, ?string $payloadClass = null): void
     {
-        if (!$report || $this->abuse === null) {
+        if (!$report || ($this->abuse === null && $this->threatIntel === null)) {
             return;
         }
         $port = (int) ($_SERVER['SERVER_PORT'] ?? 0);
@@ -239,7 +243,8 @@ final class HoneypotController
         $url = ($host !== '' ? ($https ? 'https' : 'http') . '://' . $host : '') . $context->path;
         $class = $payloadClass !== null ? ' [' . $payloadClass . ']' : '';
         $comment = sprintf('funnypot web honeypot, port %d:%s %s %s', $port, $class, $context->method, substr($url, 0, 180));
-        $this->abuse->enqueue($clientIp, $comment, '21');   // web app attack
+        $this->abuse?->enqueue($clientIp, $comment, '21');         // web app attack
+        $this->threatIntel?->enqueue($clientIp, $comment, '21');
     }
 
     /**
