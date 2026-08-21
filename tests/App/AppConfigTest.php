@@ -78,4 +78,29 @@ final class AppConfigTest extends TestCase
         putenv('FUNNYPOT_MODE=banana');
         self::assertSame('public', AppConfig::fromEnv('/app/demo')->mode);
     }
+
+    public function test_threatintel_defaults_off_and_env_overrides(): void
+    {
+        foreach (['FUNNYPOT_THREATINTEL_REPORT', 'FUNNYPOT_THREATINTEL_URL', 'FUNNYPOT_THREATINTEL_KEY'] as $k) {
+            putenv($k);
+        }
+        $d = AppConfig::fromEnv('/app/demo');
+        self::assertFalse($d->threatIntelReport);                                   // off by default
+        self::assertSame('https://threatintel.metrictower.com', $d->threatIntelUrl);
+        self::assertSame('', $d->threatIntelKey);
+        self::assertSame(1000, $d->threatIntelDailyCap);
+        self::assertSame(24, $d->threatIntelDedupHours);
+
+        putenv('FUNNYPOT_THREATINTEL_REPORT=on');
+        putenv('FUNNYPOT_THREATINTEL_URL=https://ti.example');
+        putenv('FUNNYPOT_THREATINTEL_KEY=mnk_sensor_abc');
+        $c = AppConfig::fromEnv('/app/demo');
+        self::assertTrue($c->threatIntelReport);
+        self::assertSame('https://ti.example', $c->threatIntelUrl);
+        self::assertSame('mnk_sensor_abc', $c->threatIntelKey);
+
+        foreach (['FUNNYPOT_THREATINTEL_REPORT', 'FUNNYPOT_THREATINTEL_URL', 'FUNNYPOT_THREATINTEL_KEY'] as $k) {
+            putenv($k);
+        }
+    }
 }

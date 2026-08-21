@@ -114,4 +114,8 @@ fi
 # FUNNYPOT_ABUSEIPDB_REPORT=on with a key. Interval via FUNNYPOT_ABUSEIPDB_DRAIN_INTERVAL (default 60s).
 ( while true; do sleep "${FUNNYPOT_ABUSEIPDB_DRAIN_INTERVAL:-60}"; php /app/demo/abuse-drain.php || true; done ) &
 
+# Threat Intel report drain: send the reports queued for our own funnypot-mainnet service. No-op unless
+# FUNNYPOT_THREATINTEL_REPORT=on with a key. Interval via FUNNYPOT_THREATINTEL_DRAIN_INTERVAL (default 60s).
+( while true; do sleep "${FUNNYPOT_THREATINTEL_DRAIN_INTERVAL:-60}"; php /app/demo/threatintel-drain.php || true; done ) &
+
 exec nginx -g 'daemon off;'

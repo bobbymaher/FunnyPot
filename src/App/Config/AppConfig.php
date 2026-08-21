@@ -47,6 +47,15 @@ final class AppConfig
         public int $abuseIpdbDailyCap,
         /** Report each attacker IP at most once per this many hours (AbuseIPDB dislikes duplicates). */
         public int $abuseIpdbDedupHours,
+        // Threat Intel reporting to our own funnypot-mainnet service (POST /v1/report). Independent of
+        // AbuseIPDB; both may run at once. Key presence + the report flag arm it (off/unset ⇒ no-op).
+        public bool $threatIntelReport,
+        /** Scheme + host only (no path); the reporter appends /v1/report. */
+        public string $threatIntelUrl,
+        /** Sensor-tier key sent in the `Key:` header; empty ⇒ reporting is inert. */
+        public string $threatIntelKey,
+        public int $threatIntelDailyCap,
+        public int $threatIntelDedupHours,
         // LLM-generated fake responses (opt-in; the funnypot-llm sidecar).
         public bool $llmEnabled,
         public string $llmUrl,
@@ -112,6 +121,11 @@ final class AppConfig
             trustedProxies: array_values(array_filter(array_map('trim', explode(',', $str('FUNNYPOT_TRUSTED_PROXIES', ''))))),
             abuseIpdbDailyCap: max(1, (int) $str('FUNNYPOT_ABUSEIPDB_DAILY_CAP', '1000')),
             abuseIpdbDedupHours: max(1, (int) $str('FUNNYPOT_ABUSEIPDB_DEDUP_HOURS', '24')),
+            threatIntelReport: in_array(strtolower((string) getenv('FUNNYPOT_THREATINTEL_REPORT')), ['1', 'on', 'true', 'yes'], true),
+            threatIntelUrl: $str('FUNNYPOT_THREATINTEL_URL', 'https://threatintel.metrictower.com'),
+            threatIntelKey: $str('FUNNYPOT_THREATINTEL_KEY', ''),
+            threatIntelDailyCap: max(1, (int) $str('FUNNYPOT_THREATINTEL_DAILY_CAP', '1000')),
+            threatIntelDedupHours: max(1, (int) $str('FUNNYPOT_THREATINTEL_DEDUP_HOURS', '24')),
             llmEnabled: in_array(strtolower((string) getenv('FUNNYPOT_LLM')), ['1', 'on', 'true', 'yes'], true),
             llmUrl: $str('FUNNYPOT_LLM_URL', 'http://funnypot-llm:8080/completion'),
             // A CPU 0.5B GBNF generation runs ~3-8s (slower on a small box); the timeout must clear
